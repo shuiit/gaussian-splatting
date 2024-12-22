@@ -22,7 +22,7 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0],data_dict = None):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -37,10 +37,13 @@ class Scene:
                 self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
+        
         self.train_cameras = {}
         self.test_cameras = {}
+        if os.path.exists(os.path.join(args.source_path, "dict")):
+            scene_info = sceneLoadTypeCallbacks["dict"](args.source_path, args.images, args.depths, args.eval, data_dict, llffhold=8)
 
-        if os.path.exists(os.path.join(args.source_path, "sparse")):
+        elif os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")

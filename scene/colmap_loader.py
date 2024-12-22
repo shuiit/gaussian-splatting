@@ -292,3 +292,27 @@ def read_colmap_bin_array(path):
         array = np.fromfile(fid, np.float32)
     array = array.reshape((width, height, channels), order="F")
     return np.transpose(array, (1, 0, 2)).squeeze()
+
+
+
+def read_extrinsics_dict(data):
+    images = {}
+    for base_image in data.values():
+        images[base_image['id']] = Image(
+                    id=base_image['id'], qvec=base_image['qvec'], tvec=base_image['tvec'],
+                    camera_id=base_image['camera_id'], name=base_image['name'],
+                    xys=base_image['xys'], point3D_ids=base_image['point3D_ids'])
+    return images
+
+
+
+def read_intrinsics_dict(data):
+    cameras = {}
+    for camera in data.values():
+         cameras[camera['id']] = Camera(id=camera['id'], model=camera['model'],
+                                            width=camera['width'], height=camera['height'],
+                                            params=camera['params'])
+    return cameras
+
+def read_points3D_dict(data):
+    return data[0],data[1]

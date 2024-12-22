@@ -22,6 +22,7 @@ from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+import pickle
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -40,7 +41,7 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from,data_dict):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -48,7 +49,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians,data_dict = data_dict)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -240,7 +241,10 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
                 psnr_test /= len(config['cameras'])
-                l1_test /= len(config['cameras'])          
+                l1_test /= len(config['cameras'])   
+                metrics = {'loss': l1_test, 'psnr': psnr_test}
+                tb_writer.add_hparams(hparam_dict=hparams, metric_dict=metrics,run_name = '.')
+       
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
                 if tb_writer:
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
@@ -261,8 +265,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_000,7_000,15_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000,7_000,15_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_0,1_000,7_000,15_000, 30_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_0,1_000,7_000,15_000, 30_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -270,19 +274,76 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
-    print("Optimizing " + args.model_path)
+    
+    # scale = 0.00
+    # perc = 0.0001
+    dist2 = 0.00000001
+    position_lr_init = 0.00001
+    # densify_grad_threshold = 0.0002
+    position_lr_init = 0.0000000016
+    feature_lr = 0.0025
+
+    lp = lp.extract(args)
+    op = op.extract(args)
+    # op.iterations = 30000
+    
+    lp.white_background = True
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
-    lp = lp.extract(args)
-    op = op.extract(args)
-
     # Start GUI server, configure and run training
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    lp.model_path = os.path.join(f'D:/Documents/gs_output/',f'lego_bowl_3d')
-    training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    # op.percent_dense = perc
+    # op.densify_grad_threshold = densify_grad_threshold
+    # op.scaling_lr = scale
+    # op.opacity_lr = opac 
+    op.densify_from_iter = 45000
+    op.densify_until_iter = 60000
+    # op.lambda_dssim = 0.8
+    for position_lr_init in [0.00000016,0.000000016,0.0000000016]:
+        for dist2_th_min in [0.0000001,0.00000001,0.000000001]:
+            for scaling_lr in [0.01,0.005,0.0005]:
 
-    # All done
+    # op.feature_lr = feature_lr
+                lp.dist2_th_min = dist2_th_min
+                op.scaling_lr = scaling_lr
+                op.position_lr_init = position_lr_init
+                op.position_lr_final = position_lr_init/10
+                
+                hparams = {
+                    'iterations': op.iterations,
+                    'opacity_reset_interval': op.opacity_reset_interval,
+                    'learning_rate': op.scaling_lr,
+                    'densify_grad_threshold': op.densify_grad_threshold,
+                    'position_lr_init':op.position_lr_init,
+                    'densify_from_iter': op.densify_from_iter,
+                    'percent_dense':op.percent_dense,
+                    'min dist':lp.dist2_th_min,
+                    'densification_interval' : op.densification_interval,
+                    'opacity_lr' : op.opacity_lr,
+                    'feature_lr': op.feature_lr,
+                    'lambda_dssim':op.lambda_dssim}
+
+
+                if os.path.exists("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply"):
+                    os.remove("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply")
+
+                key = 1407
+                path = f'{lp.source_path}/dict/frames.pkl'
+                with open(path, 'rb') as file:
+                    data_dict_original = pickle.load(file)
+
+
+
+                data_dict = data_dict_original.copy()
+                print("Optimizing " + args.model_path)
+
+                name_folder = f'scaling_lr{scaling_lr}_dist2_th_min{dist2_th_min}_position_lr_init{position_lr_init}_densify_from_iter{op.densify_from_iter}_densify_until_iter{op.densify_until_iter}'
+                lp.model_path = os.path.join(f"G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/fly_gaussian/3d_output/{name_folder}/", f'{key}/')
+
+                training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key])
+
+                # All done
     print("\nTraining complete.")

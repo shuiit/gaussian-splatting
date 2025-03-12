@@ -66,6 +66,7 @@ def getNerfppNorm(cam_info):
 
     center, diagonal = get_center_and_diag(cam_centers)
     radius = diagonal * 1.1
+    radius = 2/1000 # added 0.01
 
     translate = -center
 

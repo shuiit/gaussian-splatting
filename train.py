@@ -10,6 +10,8 @@
 #
 # test1233366
 import os
+import itertools
+import json
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -243,7 +245,6 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])   
                 metrics = {'loss': l1_test, 'psnr': psnr_test}
-                tb_writer.add_hparams(hparam_dict=hparams, metric_dict=metrics,run_name = '.')
        
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
                 if tb_writer:
@@ -265,8 +266,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_0,1_000,7_000,15_000, 30_000,45_000,60_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_0,1_000,7_000,15_000, 30_000,45_000,60_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_0,1_000,2000,3000,4000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_0,1_000,2000,3000,4000,5_000,10_000,15_000, 20_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -275,75 +276,131 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
     
     
-    # scale = 0.00
-    # perc = 0.0001
-    dist2 = 0.00000001
-    position_lr_init = 0.00001
-    # densify_grad_threshold = 0.0002
-    position_lr_init = 0.0000000016
-    feature_lr = 0.0025
+
+    args = parser.parse_args(sys.argv[1:])
+    args.save_iterations.append(args.iterations)
 
     lp = lp.extract(args)
     op = op.extract(args)
-    # op.iterations = 30000
-    
-    lp.white_background = True
+    pp = pp.extract(args)
+    pp.antialiasing = False
+    dist2_th_min = 0.00000000000001#0.0000000000001#default : 0.0000001
 
-    # Initialize system state (RNG)
-    safe_state(args.quiet)
-    # Start GUI server, configure and run training
-    if not args.disable_viewer:
-        network_gui.init(args.ip, args.port)
-    torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    # op.percent_dense = perc
-    # op.densify_grad_threshold = densify_grad_threshold
+    lp.white_background = True
+    lp.dist2_th_min = dist2_th_min
+    pp.compute_cov3D_python = False
+    # op.densify_grad_threshold = 0.00005
     # op.scaling_lr = scale
     # op.opacity_lr = opac 
-    op.densify_from_iter = 45000
-    op.densify_until_iter = 60000
-    # op.lambda_dssim = 0.8
-    for position_lr_init in [0.00000016,0.000000016,0.0000000016]:
-        for dist2_th_min in [0.0000001,0.00000001,0.000000001]:
-            for scaling_lr in [0.01,0.005,0.0005]:
+    # op.densify_from_iter = 5000
+    # op.densify_until_iter = 10000
+    # position_lr_init = 0.0000016
 
-    # op.feature_lr = feature_lr
-                lp.dist2_th_min = dist2_th_min
-                op.scaling_lr = scaling_lr
-                op.position_lr_init = position_lr_init
-                op.position_lr_final = position_lr_init/10
+    # Generate all combinations of hyperparameters using itertools.product
+    sweep_params = {
+        # 'position_lr_max_steps': [30_000],
+        # 'position_lr_init' : [0.000016,0.0000016],
+        # 'position_lr_final' : [0.00016],
+        'iterations' : [20000],
+        # 'densify_grad_threshold' : [0.0002,0.0005],
+        'densify_until_iter' : [2000,5000,10000,15000],
+        'densify_from_iter': [500],
+        # 'scaling_lr': [ 0.005],
+        # 'opacity_lr': [0.05]
+        # 'percent_dense' : [0.01,0.001,0.005],
+        'opacity_reset_interval' : [50,20,100,200],
+        'opacity_lr' : [0.1,0.2,0.05]
+        # 'densification_interval': [500]
+
+        
+    }
+    sweep_combinations = itertools.product(*sweep_params.values())
+
+    print("Optimizing " + args.model_path)
+   
+    safe_state(args.quiet)
+    # Start GUI server, configure and run training
+    network_gui.init(args.ip, args.port)
+
+
+
+    path = f'{lp.source_path}/dict/frames_model_1400.pkl'
+    with open(path, 'rb') as file:
+        data_dict_original = pickle.load(file)
+
+    # Loop through each combination of parameters
+    for combination in sweep_combinations:
+        param_values = dict(zip(sweep_params.keys(), combination))
+
+        # Update optimization parameters
+        # op.lambda_dist = lambda_dist
+        # op.lambda_normal = lambda_normal
+
+        # Update optimization parameters dynamically
+        for key, value in param_values.items():
+            setattr(op, key, value)  # Update the parameter in `op`
+
+        # Set anomaly detection if enabled
+        torch.autograd.set_detect_anomaly(args.detect_anomaly)
+
+        # Load data
+
+        # data_dict = data_dict_original.copy()
+        key = 1400
+        # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_sweep7/", f"{key}/minth_less6_fly_size_iter_{param_values['iterations']}_posini_{param_values['position_lr_init']}_posfin{param_values['position_lr_final']}_sclr_{param_values['scaling_lr']}_inidens_{param_values['densify_from_iter']}__findens_{param_values['densify_from_iter']}/")
+        # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/3dgs_opacity_nn/", f"{key}/opacity_intvl_{param_values['opacity_reset_interval']}_grad_threshold_{param_values['densify_grad_threshold']}_position_lr_init_{param_values['position_lr_init']}_percent_dense_{param_values['percent_dense']}_scaling_{param_values['scaling_lr']}/")
+        lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/opacity_3dgs_noaa/", f"{key}/densify_until_{param_values['densify_until_iter']}_densify_from_{param_values['densify_from_iter']}_iterations_{param_values['iterations']}_default_opacity_intvl_{param_values['opacity_reset_interval']}_opacity_lr{param_values['opacity_lr']}/")
+        training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict_original[key])
+
+        # Save parameters to a text file
+        params_path = os.path.join(lp.model_path, "params.txt")
+        with open(params_path, "w") as f:
+            json.dump(param_values, f, indent=4)  # Save as formatted JSON
+
+
+    # for dist2_th_min in [0.0000000001]:#[0.0000001,0.00000001,0.000000001]:
+    #     for scaling_lr in [0.005]:
+
+    # # op.feature_lr = feature_lr
+    #             lp.dist2_th_min = dist2_th_min
+    #             op.scaling_lr = scaling_lr
+    #             op.position_lr_init = position_lr_init
+    #             op.position_lr_final = position_lr_init/100
                 
-                hparams = {
-                    'iterations': op.iterations,
-                    'opacity_reset_interval': op.opacity_reset_interval,
-                    'learning_rate': op.scaling_lr,
-                    'densify_grad_threshold': op.densify_grad_threshold,
-                    'position_lr_init':op.position_lr_init,
-                    'densify_from_iter': op.densify_from_iter,
-                    'percent_dense':op.percent_dense,
-                    'min dist':lp.dist2_th_min,
-                    'densification_interval' : op.densification_interval,
-                    'opacity_lr' : op.opacity_lr,
-                    'feature_lr': op.feature_lr,
-                    'lambda_dssim':op.lambda_dssim}
+    #             hparams = {
+    #                 'iterations': op.iterations,
+    #                 'opacity_reset_interval': op.opacity_reset_interval,
+    #                 'learning_rate': op.scaling_lr,
+    #                 'densify_grad_threshold': op.densify_grad_threshold,
+    #                 'position_lr_init':op.position_lr_init,
+    #                 'densify_from_iter': op.densify_from_iter,
+    #                 'percent_dense':op.percent_dense,
+    #                 'min dist':lp.dist2_th_min,
+    #                 'densification_interval' : op.densification_interval,
+    #                 'opacity_lr' : op.opacity_lr,
+    #                 'feature_lr': op.feature_lr,
+    #                 'lambda_dssim':op.lambda_dssim}
 
 
-                if os.path.exists("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply"):
-                    os.remove("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply")
+    #             if os.path.exists("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply"):
+    #                 os.remove("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply")
 
-                key = 1407
-                path = f'{lp.source_path}/dict/frames.pkl'
-                with open(path, 'rb') as file:
-                    data_dict_original = pickle.load(file)
+    #             key = 900
+    #             path = f'{lp.source_path}/dict/frames_model.pkl'
+    #             with open(path, 'rb') as file:
+    #                 data_dict_original = pickle.load(file)
 
 
 
-                data_dict = data_dict_original.copy()
-                print("Optimizing " + args.model_path)
+    #             data_dict = data_dict_original.copy()
+    #             print("Optimizing " + args.model_path)
 
-                name_folder = f'scaling_lr{scaling_lr}_dist2_th_min{dist2_th_min}_position_lr_init{position_lr_init}_densify_from_iter{op.densify_from_iter}_densify_until_iter{op.densify_until_iter}'
-                lp.model_path = os.path.join(f"G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/fly_gaussian/3d_output/{name_folder}/", f'{key}/')
+    #             name_folder = f'scaling_lr{scaling_lr}_dist2_th_min{dist2_th_min}_position_lr_init{position_lr_init}_densify_from_iter{op.densify_from_iter}_densify_until_iter{op.densify_until_iter}'
+    #             name_folder = f'zbuff_scaling_lr{scaling_lr}_iterations{op.iterations}_densify_grad_threshold{op.densify_grad_threshold}_fin16'
+    #             name_folder = f'model_try_3d'
+    #             lp.model_path = os.path.join(f"D:/Documents/model_output/{name_folder}/", f'{key}/')
 
-                training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key])
+    #             training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key])
 
                 # All done
     print("\nTraining complete.")

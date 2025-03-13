@@ -22,6 +22,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
+import utils.model_utils as model_utils
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -66,6 +67,7 @@ def getNerfppNorm(cam_info):
 
     center, diagonal = get_center_and_diag(cam_centers)
     radius = diagonal * 1.1
+    radius = 2/1000 # added 0.01
 
     translate = -center
 
@@ -276,6 +278,8 @@ def readCamerasFromTransforms(path, transformsfile, depths_folder, white_backgro
             
     return cam_infos
 
+
+
 def readDictSceneInfo(path, images,depths, eval, data_dict, llffhold=8):
 
     cam_extrinsics = read_extrinsics_dict(data_dict[0])
@@ -334,26 +338,34 @@ def readDictSceneInfo(path, images,depths, eval, data_dict, llffhold=8):
         test_cam_infos = []
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
-    xyz, rgb = read_points3D_dict(data_dict[2])
+    # xyz, rgb = read_points3D_dict(data_dict[2])
     ply_path = os.path.join(path, "dict/points3D.ply")
-    dict_path = os.path.join(path, "dict/xyz_rgb.pkl")
+    # dict_path = os.path.join(path, "dict/xyz_rgb.pkl")
     
-    if os.path.exists(ply_path): 
-        os.remove(ply_path)
-        storePly(ply_path, xyz, rgb)
-    else:
-        storePly(ply_path, xyz, rgb)
-    try:
-        pcd = fetchPly(ply_path)
-    except:
-        pcd = None
+    # if os.path.exists(ply_path): 
+    #     os.remove(ply_path)
+    #     storePly(ply_path, xyz, rgb)
+    # else:
+    #     storePly(ply_path, xyz, rgb)
+    # try:
+    #     pcd = fetchPly(ply_path)
+    # except:
+    #     pcd = None
 
-    scene_info = SceneInfo(point_cloud=pcd,
+    # scene_info = SceneInfo(point_cloud=pcd,
+    #                        train_cameras=train_cam_infos,
+    #                        test_cameras=test_cam_infos,
+    #                        nerf_normalization=nerf_normalization,
+    #                        ply_path=ply_path,
+    #                        is_nerf_synthetic=False)
+    
+
+    scene_info = SceneInfo(point_cloud=[],
                            train_cameras=train_cam_infos,
-                           test_cameras=test_cam_infos,
-                           nerf_normalization=nerf_normalization,
-                           ply_path=ply_path,
-                           is_nerf_synthetic=False)
+                        test_cameras=test_cam_infos,
+                        nerf_normalization=nerf_normalization,
+                        ply_path=ply_path,
+                        is_nerf_synthetic=False)
 
     return scene_info
 
@@ -399,5 +411,5 @@ def readNerfSyntheticInfo(path, white_background, depths, eval, extension=".png"
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,
     "Blender" : readNerfSyntheticInfo,
-    "dict": readDictSceneInfo
+    "dict": readDictSceneInfo,
 }

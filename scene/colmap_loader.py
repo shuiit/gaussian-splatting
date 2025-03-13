@@ -18,7 +18,9 @@ CameraModel = collections.namedtuple(
 Camera = collections.namedtuple(
     "Camera", ["id", "model", "width", "height", "params"])
 BaseImage = collections.namedtuple(
-    "Image", ["id", "qvec", "tvec", "camera_id", "name", "xys", "point3D_ids"])
+    # "Image", ["id", "qvec", "tvec", "camera_id", "name", "xys", "point3D_ids"])
+    "Image", ["id", "qvec", "tvec", "camera_id", "name"])
+
 Point3D = collections.namedtuple(
     "Point3D", ["id", "xyz", "rgb", "error", "image_ids", "point2D_idxs"])
 CAMERA_MODELS = {
@@ -295,13 +297,23 @@ def read_colmap_bin_array(path):
 
 
 
+# def read_extrinsics_dict(data):
+#     images = {}
+#     for base_image in data.values():
+#         images[base_image['id']] = Image(
+#                     id=base_image['id'], qvec=base_image['qvec'], tvec=base_image['tvec'],
+#                     camera_id=base_image['camera_id'], name=base_image['name'],
+#                     xys=base_image['xys'], point3D_ids=base_image['point3D_ids'])
+#     return images
+
+
 def read_extrinsics_dict(data):
     images = {}
     for base_image in data.values():
         images[base_image['id']] = Image(
                     id=base_image['id'], qvec=base_image['qvec'], tvec=base_image['tvec'],
-                    camera_id=base_image['camera_id'], name=base_image['name'],
-                    xys=base_image['xys'], point3D_ids=base_image['point3D_ids'])
+                    camera_id=base_image['camera_id'], name=base_image['name'])
+                    
     return images
 
 

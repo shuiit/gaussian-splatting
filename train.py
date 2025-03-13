@@ -10,6 +10,8 @@
 #
 # test1233366
 import os
+import itertools
+import json
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -23,6 +25,14 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 import pickle
+import utils.model_utils as model_utils
+parent_dir = os.path.abspath(os.path.join(os.getcwd(), '..'))
+sys.path.insert(0, parent_dir)
+from model.Frame import Frame
+import utils.camera_frame_utils as camera_frame_utils
+import numpy as np
+
+
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -41,15 +51,15 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from,data_dict):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from,data_dict,model = None):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
-    scene = Scene(dataset, gaussians,data_dict = data_dict)
+    gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type, model = model)
+    scene = Scene(dataset, gaussians,data_dict = data_dict, model = model)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -243,7 +253,6 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])   
                 metrics = {'loss': l1_test, 'psnr': psnr_test}
-                tb_writer.add_hparams(hparam_dict=hparams, metric_dict=metrics,run_name = '.')
        
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
                 if tb_writer:
@@ -257,6 +266,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
 
 if __name__ == "__main__":
     # Set up command line argument parser
+    # initilize model
+
     parser = ArgumentParser(description="Training script parameters")
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
@@ -265,8 +276,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1_0,1_000,7_000,15_000, 30_000,45_000,60_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_0,1_000,7_000,15_000, 30_000,45_000,60_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[10,100,200,300,400,500,600])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[10,100,200,300,400,500,600])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -275,75 +286,160 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
     
     
-    # scale = 0.00
-    # perc = 0.0001
-    dist2 = 0.00000001
-    position_lr_init = 0.00001
-    # densify_grad_threshold = 0.0002
-    position_lr_init = 0.0000000016
-    feature_lr = 0.0025
+
+    args = parser.parse_args(sys.argv[1:])
+    args.save_iterations.append(args.iterations)
 
     lp = lp.extract(args)
     op = op.extract(args)
-    # op.iterations = 30000
-    
-    lp.white_background = True
+    pp = pp.extract(args)
+    dist2_th_min = 0.00000000000001#0.0000000000001#default : 0.0000001
 
-    # Initialize system state (RNG)
-    safe_state(args.quiet)
-    # Start GUI server, configure and run training
-    if not args.disable_viewer:
-        network_gui.init(args.ip, args.port)
-    torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    # op.percent_dense = perc
-    # op.densify_grad_threshold = densify_grad_threshold
+    lp.white_background = True
+    lp.dist2_th_min = dist2_th_min
+    pp.compute_cov3D_python = False
+    # op.densify_grad_threshold = 0.00005
     # op.scaling_lr = scale
     # op.opacity_lr = opac 
-    op.densify_from_iter = 45000
-    op.densify_until_iter = 60000
-    # op.lambda_dssim = 0.8
-    for position_lr_init in [0.00000016,0.000000016,0.0000000016]:
-        for dist2_th_min in [0.0000001,0.00000001,0.000000001]:
-            for scaling_lr in [0.01,0.005,0.0005]:
+    # op.densify_from_iter = 5000
+    # op.densify_until_iter = 10000
+    # position_lr_init = 0.0000016
 
-    # op.feature_lr = feature_lr
-                lp.dist2_th_min = dist2_th_min
-                op.scaling_lr = scaling_lr
-                op.position_lr_init = position_lr_init
-                op.position_lr_final = position_lr_init/10
+    # Generate all combinations of hyperparameters using itertools.product
+    sweep_params = {
+        # 'position_lr_max_steps': [30_000],
+        # 'position_lr_init' : [0],
+        # 'position_lr_final' : [0],
+        'iterations' : [600],
+        # 'densify_grad_threshold' : [0.0003,0.0001],
+        # 'densify_until_iter' : [15000],
+        'densify_from_iter': [1000],
+        # 'scaling_lr': [0.005],
+        # 'opacity_lr': [0.05]
+    }
+    sweep_combinations = itertools.product(*sweep_params.values())
+
+    print("Optimizing " + args.model_path)
+   
+    safe_state(args.quiet)
+    # Start GUI server, configure and run training
+    network_gui.init(args.ip, args.port)
+
+
+
+    path = f'{lp.source_path}/dict/frames_model.pkl'
+    with open(path, 'rb') as file:
+        data_dict = pickle.load(file)
+
+    
+
+
+    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
+
+    root,body,right_wing,left_wing,list_joints_pitch_update = model_utils.initilize_skeleton_and_skin(path_to_mesh,skeleton_scale=1/1000, skin_scale = 1)
+    joint_list,skin,weights,bones = model_utils.build_skeleton(root,body,right_wing,left_wing)
+
+
+    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov30_2024_11_12_darkan/'
+    frame = 1426
+    frames_per_cam = [Frame(image_path,frame,cam_num,frames_dict = data_dict) for cam_num in range(4)]
+    camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
+    camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
+    cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
+    
+
+
+    model = {}
+    model['list_joints_pitch_update'] = list_joints_pitch_update
+    model['joint_list'] = joint_list
+    model['skin'] = skin
+    model['weights'] = weights
+    model['bones'] = bones
+    model['wing_body_ini_pose'] = {'right_wing_angles_initial' : [-0,-80,0.1],
+                                    'left_wing_angles_initial' : [0,-90,-0.0],
+                                    'body_angles_initial' : [230.0,  -25,  0]}
+
+
+
+
+    # Loop through each combination of parameters
+    for combination in sweep_combinations:
+        param_values = dict(zip(sweep_params.keys(), combination))
+
+        # Update optimization parameters
+        # op.lambda_dist = lambda_dist
+        # op.lambda_normal = lambda_normal
+
+        # Update optimization parameters dynamically
+        for key, value in param_values.items():
+            setattr(op, key, value)  # Update the parameter in `op`
+
+        # Set anomaly detection if enabled
+        torch.autograd.set_detect_anomaly(args.detect_anomaly)
+
+        # Load data
+
+        # data_dict = data_dict_original.copy()
+        key = 1426
+        model['ew_to_lab'] = list(data_dict[key][1].values())[0]['ew_to_lab']
+        cm_point_ew = model['ew_to_lab'] @ cm_point
+        model['wing_body_ini_pose']['body_location_initial'] = cm_point_ew
+        
+        
+        # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_sweep7/", f"{key}/minth_less6_fly_size_iter_{param_values['iterations']}_posini_{param_values['position_lr_init']}_posfin{param_values['position_lr_final']}_sclr_{param_values['scaling_lr']}_inidens_{param_values['densify_from_iter']}__findens_{param_values['densify_from_iter']}/")
+        lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/model/", f"{key}/try/")
+        # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_3dgs/", f"{key}/default/")
+        training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key],model)
+
+        # Save parameters to a text file
+        params_path = os.path.join(lp.model_path, "params.txt")
+        with open(params_path, "w") as f:
+            json.dump(param_values, f, indent=4)  # Save as formatted JSON
+
+
+    # for dist2_th_min in [0.0000000001]:#[0.0000001,0.00000001,0.000000001]:
+    #     for scaling_lr in [0.005]:
+
+    # # op.feature_lr = feature_lr
+    #             lp.dist2_th_min = dist2_th_min
+    #             op.scaling_lr = scaling_lr
+    #             op.position_lr_init = position_lr_init
+    #             op.position_lr_final = position_lr_init/100
                 
-                hparams = {
-                    'iterations': op.iterations,
-                    'opacity_reset_interval': op.opacity_reset_interval,
-                    'learning_rate': op.scaling_lr,
-                    'densify_grad_threshold': op.densify_grad_threshold,
-                    'position_lr_init':op.position_lr_init,
-                    'densify_from_iter': op.densify_from_iter,
-                    'percent_dense':op.percent_dense,
-                    'min dist':lp.dist2_th_min,
-                    'densification_interval' : op.densification_interval,
-                    'opacity_lr' : op.opacity_lr,
-                    'feature_lr': op.feature_lr,
-                    'lambda_dssim':op.lambda_dssim}
+    #             hparams = {
+    #                 'iterations': op.iterations,
+    #                 'opacity_reset_interval': op.opacity_reset_interval,
+    #                 'learning_rate': op.scaling_lr,
+    #                 'densify_grad_threshold': op.densify_grad_threshold,
+    #                 'position_lr_init':op.position_lr_init,
+    #                 'densify_from_iter': op.densify_from_iter,
+    #                 'percent_dense':op.percent_dense,
+    #                 'min dist':lp.dist2_th_min,
+    #                 'densification_interval' : op.densification_interval,
+    #                 'opacity_lr' : op.opacity_lr,
+    #                 'feature_lr': op.feature_lr,
+    #                 'lambda_dssim':op.lambda_dssim}
 
 
-                if os.path.exists("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply"):
-                    os.remove("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply")
+    #             if os.path.exists("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply"):
+    #                 os.remove("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply")
 
-                key = 1407
-                path = f'{lp.source_path}/dict/frames.pkl'
-                with open(path, 'rb') as file:
-                    data_dict_original = pickle.load(file)
+    #             key = 900
+    #             path = f'{lp.source_path}/dict/frames_model.pkl'
+    #             with open(path, 'rb') as file:
+    #                 data_dict_original = pickle.load(file)
 
 
 
-                data_dict = data_dict_original.copy()
-                print("Optimizing " + args.model_path)
+    #             data_dict = data_dict_original.copy()
+    #             print("Optimizing " + args.model_path)
 
-                name_folder = f'scaling_lr{scaling_lr}_dist2_th_min{dist2_th_min}_position_lr_init{position_lr_init}_densify_from_iter{op.densify_from_iter}_densify_until_iter{op.densify_until_iter}'
-                lp.model_path = os.path.join(f"G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/fly_gaussian/3d_output/{name_folder}/", f'{key}/')
+    #             name_folder = f'scaling_lr{scaling_lr}_dist2_th_min{dist2_th_min}_position_lr_init{position_lr_init}_densify_from_iter{op.densify_from_iter}_densify_until_iter{op.densify_until_iter}'
+    #             name_folder = f'zbuff_scaling_lr{scaling_lr}_iterations{op.iterations}_densify_grad_threshold{op.densify_grad_threshold}_fin16'
+    #             name_folder = f'model_try_3d'
+    #             lp.model_path = os.path.join(f"D:/Documents/model_output/{name_folder}/", f'{key}/')
 
-                training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key])
+    #             training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key])
 
                 # All done
     print("\nTraining complete.")

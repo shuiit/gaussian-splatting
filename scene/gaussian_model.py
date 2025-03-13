@@ -47,7 +47,7 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree, optimizer_type="default",dist2_th_min = 0.0000001):
+    def __init__(self, sh_degree, optimizer_type="default",dist2_th_min = 0.0000001, model = None):
         self.active_sh_degree = 0
         self.optimizer_type = optimizer_type
         self.max_sh_degree = sh_degree  
@@ -146,6 +146,62 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
+
+
+    def create_from_model(self, model, cam_infos, spatial_lr_scale, wing_body_pose ):
+        self.spatial_lr_scale = spatial_lr_scale
+        fused_point_cloud = model['skin']
+        fused_color = RGB2SH(torch.full(fused_point_cloud.shape,0.5).float().cuda())
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        features[:, :3, 0 ] = fused_color
+        features[:, 3:, 1:] = 0.0
+
+        self.list_joints_pitch_update = model['list_joints_pitch_update']
+        self.joint_list = model['joint_list']
+        self.weights = model['weights'].cuda()
+        self.bones = model['bones']
+        self.ew_to_lab = torch.tensor(model['ew_to_lab']).float().cuda()
+
+
+        right_wing_angles = torch.tensor(wing_body_pose['right_wing_angles_initial'],device='cuda')#self.bones[3].local_angles
+        left_wing_angles = torch.tensor(wing_body_pose['left_wing_angles_initial'],device='cuda')#self.bones[4].local_angles
+
+        body_location = torch.tensor(wing_body_pose['body_location_initial'],device='cuda')
+        body_angles = torch.tensor(wing_body_pose['body_angles_initial'],device='cuda')
+
+
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        features[:, :3, 0 ] = fused_color
+        features[:, 3:, 1:] = 0.0
+
+        print("Number of points at initialisation : ", fused_point_cloud.shape[0])
+
+        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(fused_point_cloud.cpu())).float().cuda()), self.dist2_th_min)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+
+        opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+
+        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
+        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rots.requires_grad_(True))
+        self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+        self.pretrained_exposures = None
+        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+
+        self.body_angles = nn.Parameter(body_angles.requires_grad_(True))
+        self.body_location = nn.Parameter(body_location.requires_grad_(True))
+        self.right_wing_angles = nn.Parameter(right_wing_angles.requires_grad_(True))
+        self.left_wing_angles = nn.Parameter(left_wing_angles.requires_grad_(True))
+
+
+
 
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float):
         self.spatial_lr_scale = spatial_lr_scale

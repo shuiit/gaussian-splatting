@@ -22,7 +22,7 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0],data_dict = None):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0],data_dict = None, model = None):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -42,7 +42,6 @@ class Scene:
         self.test_cameras = {}
         if os.path.exists(os.path.join(args.source_path, "dict")):
             scene_info = sceneLoadTypeCallbacks["dict"](args.source_path, args.images, args.depths, args.eval, data_dict, llffhold=8)
-
         elif os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
@@ -82,6 +81,8 @@ class Scene:
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply"), args.train_test_exp)
+        elif model:
+            self.gaussians.create_from_model(model, scene_info.train_cameras, self.cameras_extent, model['wing_body_ini_pose'] )
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 

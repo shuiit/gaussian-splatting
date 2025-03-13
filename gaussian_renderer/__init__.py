@@ -8,12 +8,17 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
+import os
+import sys
+module_path = os.path.abspath("diff-gaussian-rasterization")  # Adjust if needed
+if module_path not in sys.path:
+    sys.path.append(module_path)
 import torch
 import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
+import utils.model_utils as model_utils
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, separate_sh = False, override_color = None, use_trained_exp=False):
     """
@@ -52,6 +57,12 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
     means3D = pc.get_xyz
+    means3D = model_utils.transform_pose(means3D,pc.weights,pc.body_angles,
+                                pc.list_joints_pitch_update,pc.joint_list,pc.bones,pc.body_location,
+                                pc.right_wing_angles,pc.left_wing_angles)
+
+    means3D = torch.matmul(pc.ew_to_lab.T,means3D.T).T
+
     means2D = screenspace_points
     opacity = pc.get_opacity
 

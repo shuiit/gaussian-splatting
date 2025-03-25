@@ -55,8 +55,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
-
-    means3D = pc.get_xyz
+    scale_mat = torch.diag(pc.scale_model)
+    means3D = (scale_mat @ pc.get_xyz.T).T
     means3D = model_utils.transform_pose(means3D,pc.weights,pc.body_angles,
                                 pc.list_joints_pitch_update,pc.joint_list,pc.bones,pc.body_location,
                                 pc.right_wing_angles,pc.left_wing_angles)

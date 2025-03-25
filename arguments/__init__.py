@@ -95,6 +95,16 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
+
+        self.opcaity_init_iter = 500
+        
+        self.body_location_init = 0.0001
+        self.body_location_final = 0.0000000001
+        self.weights_lr = 0
+        self.model_rotation_lr = 0.1
+        self.model_rotation_lr_rwing = 0.1
+        self.model_rotation_lr_lwing = 0.1
+        self.scale_model = 0.005
         self.random_background = False
         self.optimizer_type = "default"
         super().__init__(parser, "Optimization Parameters")

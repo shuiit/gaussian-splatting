@@ -79,8 +79,8 @@ class Camera(nn.Module):
                 self.invdepthmap = self.invdepthmap[..., 0]
             self.invdepthmap = torch.from_numpy(self.invdepthmap[None]).to(self.data_device)
 
-        self.zfar = 0.4
-        self.znear = 0.09
+        self.zfar = 1000
+        self.znear = 0.000000000001#0.09
 
         self.trans = trans
         self.scale = scale

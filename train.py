@@ -331,9 +331,10 @@ if __name__ == "__main__":
         'scaling_lr': [0.0000005],
         # 'opacity_lr': [0.005],
         # 'feature_lr': [0],
-        'model_rotation_lr' : [0.1,0.5],
-        'model_rotation_lr_rwing' : [1,0.5],
-        'model_rotation_lr_lwing' : [1,0.5],
+        'scale_model' : [0.0005,0.005],
+        'model_rotation_lr' : [0.1],#[0.1,0.5],
+        'model_rotation_lr_rwing' : [2,0.1],#,[1,0.5],
+        'model_rotation_lr_lwing' : [2,0.1],#,[1,0.5],
         'opacity_reset_interval' : [15],
         # 'opacity_reset_interval' : [500],
         # 'opacity_lr' : [0.1]#,0.12,0.08]
@@ -425,7 +426,7 @@ if __name__ == "__main__":
             model_name = f"lw_{param_values['model_rotation_lr_lwing']}_rw_{param_values['model_rotation_lr_rwing']}_body_{param_values['model_rotation_lr']}"
 
             # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_sweep7/", f"{key}/minth_less6_fly_size_iter_{param_values['iterations']}_posini_{param_values['position_lr_init']}_posfin{param_values['position_lr_final']}_sclr_{param_values['scaling_lr']}_inidens_{param_values['densify_from_iter']}__findens_{param_values['densify_from_iter']}/")
-            lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/model_sweep_angleslr/", f"{frame}/{model_name}/")
+            lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/model_sweep_angleslr2/", f"{frame}/{model_name}/")
             # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_3dgs/", f"{key}/default/")
             gauss = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
 

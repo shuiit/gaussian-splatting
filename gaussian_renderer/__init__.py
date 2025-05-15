@@ -20,7 +20,7 @@ from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 import utils.model_utils as model_utils
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, separate_sh = False, override_color = None, use_trained_exp=False):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, separate_sh = False, override_color = None, use_trained_exp=False,calc_model = True):
     """
     Render the scene. 
     
@@ -57,9 +57,23 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
     scale_mat = torch.diag(pc.scale_model)
     means3D = (scale_mat @ pc.get_xyz.T).T
+    # if calc_model == True:
+       
+        # right_wing_angles_center = torch.tensor([0.0,0.0,pc.right_wing_angles_center]).float().cuda()
+        # left_wing_angles_center = torch.tensor([0.0,0.0,pc.left_wing_angles_center]).float().cuda()
+        
+    
+
+
     means3D = model_utils.transform_pose(means3D,pc.weights,pc.body_angles,
                                 pc.list_joints_pitch_update,pc.joint_list,pc.bones,pc.body_location,
-                                pc.right_wing_angles,pc.left_wing_angles)
+                                pc.right_wing_angles,pc.left_wing_angles,pc.right_wing_angle_joint1,pc.left_wing_angle_joint1,
+                                pc.right_wing_twist_joint1,pc.left_wing_twist_joint1,
+                                pc.right_wing_angle_joint2,pc.left_wing_angle_joint2,
+                                pc.right_wing_twist_joint2,pc.left_wing_twist_joint2)
+    
+
+
 
     means3D = torch.matmul(pc.ew_to_lab.T,means3D.T).T
 

@@ -9,6 +9,8 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 # test1233366
+import copy
+
 import os
 import itertools
 import json
@@ -120,7 +122,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
+        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE, calc_model = op.calc_model)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
 
@@ -138,7 +140,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         else:
             ssim_value = ssim(image, gt_image)
 
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)  #+ 2*sum(gaussians.xyz_gradient_accum )/len(gaussians.xyz_gradient_accum)
 
         # Depth regularization
         Ll1depth_pure = 0.0
@@ -157,7 +159,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss.backward()
 
         iter_end.record()
-
+    
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
@@ -168,7 +170,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
+            if iteration == 1:
+                weights_dict = {}
+            if iteration in testing_iterations:
+                weights_dict[iteration] = gaussians.weights.detach().cpu().numpy().astype(int)
 
+    
             # Log and save
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
@@ -185,14 +192,35 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii)
                 
+
+
+
                 if (iteration > opt.opcaity_init_iter) and (iteration % opt.opacity_reset_interval == 0) or (dataset.white_background and iteration == opt.densify_from_iter):
                     
+
                     for param_group in gaussians.optimizer.param_groups:
                         if param_group["name"] == "opacity":
-                            param_group['lr'] = 0.2
+                            param_group['lr'] = 0.1
                         if param_group["name"] == "scaling":
-                            param_group['lr'] = 0.005
+                            param_group['lr'] = opt.scaling_later
+                        if param_group["name"] == "rotation_lr":
+                            param_group['lr'] = 0.001
+                        # if param_group["name"] == "feature_lr":
+                        #     param_group['lr'] = 0.0025
+
                     gaussians.reset_opacity()
+
+                if (iteration == op.xyz_init_iter):
+                    op.calc_model = False
+                    for param_group in gaussians.optimizer.param_groups:
+                        if param_group["name"] == "xyz":
+                                    gaussians.xyz_scheduler_args = get_expon_lr_func(lr_init=op.init_xyz_late*gaussians.spatial_lr_scale,
+                                                                                lr_final=0.0000016*gaussians.spatial_lr_scale,
+                                                                                lr_delay_mult=op.position_lr_delay_mult,
+                                                                                max_steps=op.position_lr_max_steps)
+                                    gaussians.update_learning_rate( iteration)
+                                    
+
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -206,10 +234,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.optimizer.step()
                     gaussians.optimizer.zero_grad(set_to_none = True)
 
+
+            
+            # gaussians.right_wing_twist_joint1.clamp_(-10,10)
+            # gaussians.left_wing_twist_joint1.clamp_(-10,10)
+
+            # gaussians.right_wing_twist_joint2.clamp_(-10,10)
+            # gaussians.left_wing_twist_joint2.clamp_(-10,10)
+
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-    return gaussians
+    return gaussians,weights_dict
 
 
 def prepare_output_and_logger(args):    
@@ -245,7 +281,6 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
         torch.cuda.empty_cache()
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
-
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
@@ -266,7 +301,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 l1_test /= len(config['cameras'])   
                 metrics = {'loss': l1_test, 'psnr': psnr_test}
        
-                # print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
+                print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
                 if tb_writer:
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
@@ -275,6 +310,56 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
+
+
+def save_run_params(param_values,weights_dict,angle_history,model_name,frame_start,frame_end):
+    results = {'params': param_values,'weights': weights_dict,'angles': angle_history,'frames':range(frame_start,frame_end)}
+    # Save all into one pickle file
+    results_path = os.path.join(path_to_save, f'{model_name}_results.pkl')
+    with open(results_path, 'wb') as handle:
+        pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_start,frame_end,update_from_prev_frame = True):
+    
+    # Loop through each combination of parameters
+    for combination in sweep_combinations:
+
+        param_values = dict(zip(sweep_params.keys(), combination))
+        with open(os.path.join(lp.model_path, "params.txt"), "w") as f:
+            json.dump(param_values, f, indent=4)
+        model_name = f"fly_model_hull_comp"
+        lp.model_path = os.path.join(f"{path_to_save}", f"{frame}/{model_name}/")
+
+        # Update optimization parameters dynamically
+        for key, value in param_values.items():
+            setattr(op, key, value)  # Update the parameter in `op`
+
+        # Set anomaly detection if enabled
+        torch.autograd.set_detect_anomaly(args.detect_anomaly)
+
+        model['ew_to_lab'] = list(data_dict[frame][1].values())[0]['ew_to_lab']
+        model['wing_body_ini_pose']['body_location'] = model['ew_to_lab'] @ cm_point
+        gauss,weights_dict = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
+        
+        if update_from_prev_frame == True:
+            model['wing_body_ini_pose'] = {key: getattr(gauss, key).cpu().detach().tolist()for key in params_to_update}
+
+
+        for key in angle_history:
+            tensor = getattr(gauss, key)
+            angle_history[key].append(tensor.cpu().detach().numpy())
+        weights_list.append(weights_dict)
+
+        # Save parameters to a text file
+        
+        torch.cuda.empty_cache()
+
+        save_run_params(param_values,weights_list,angle_history,model_name,frame_start,frame_end)
+        return model
+
+
+
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -288,8 +373,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,100,300,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2200,2500,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,100,300,500,600,700,800,900,1000,1200,1400,1600,1800,2000,2200,2500,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,100,400,500,700,900,1000,1300,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,100,400,500,700,900,1000,1300,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -297,201 +382,158 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
+    lp = lp.extract(args)
+    op = op.extract(args)
+    pp = pp.extract(args)
+    frame_start = 1659
+    frame_end = 1700
+
+    path_to_save = 'D:/Documents/gaussian_model_output/model_wings_center_1430_1900_dens_nodense_500'
+    path_to_save = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/model_run'
+
+
+    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
+
+    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov30_2024_11_12_darkan/'
+    image_path = 'D:/Documents/data_for_gs/mov1_2023_08_09_60ms/'
+    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov1_2023_08_09_60ms/'
+
+
+    path_to_save = 'D:/Documents/gaussian_model_output/fly_to_bee'
+    path_to_save = 'D:/Documents/gaussian_model_output/fly_fast'
+    path_to_save = 'D:/Documents/gaussian_model_output/fly_compare_hull'
+
+    # image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov7_2024_11_12_darkan/'
+
+
+
+    path = f'{lp.source_path}/dict/frames_model_seminar.pkl'
+    update_from_prev_frame = True
+    params_to_update = {'right_wing_angles','left_wing_angles','body_angles',
+                            'left_wing_angle_joint1','left_wing_angle_joint2',
+                            'right_wing_angle_joint1','right_wing_angle_joint2',
+                            'right_wing_twist_joint1','right_wing_twist_joint2',
+                            'left_wing_twist_joint1','left_wing_twist_joint2'}
     
+
+
+    
+    angle_history = {key : [] for key in params_to_update}
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
-    lp = lp.extract(args)
-    op = op.extract(args)
-    pp = pp.extract(args)
-    dist2_th_min = 0.0000001#0.0000000000001#default : 0.0000001
-    # dist2_th_min = 0.0001
-#0.0000000000001#default : 0.0000001
 
     lp.white_background = True
-    lp.dist2_th_min = dist2_th_min
-    pp.compute_cov3D_python = False
-    # op.densify_grad_threshold = 0.00005
-    # op.scaling_lr = scale
-    # op.opacity_lr = opac 
-    # op.densify_from_iter = 5000
-    # op.densify_until_iter = 10000
-    # position_lr_init = 0.0000016
+    lp.dist2_th_min = 0.0000001
+    pp.antialiasing = False
+    pp.antialiasing = False
 
+    with open(path, 'rb') as file:
+        data_dict = pickle.load(file)
+    
+    network_gui.init(args.ip, args.port)
+    safe_state(args.quiet)
     # Generate all combinations of hyperparameters using itertools.product
     sweep_params = {
         # 'position_lr_max_steps': [30_000],
-        # 'position_lr_init' : [0],
-        # 'position_lr_final' : [0],
-        'iterations' : [1000],
-        'densify_grad_threshold' : [0.0005],
-        # 'densify_until_iter' : [2000],
-        # 'densify_from_iter': [500],
-        'scaling_lr': [0.0000005],
-        # 'opacity_lr': [0.005],
+        # 'position_lr_init' : [0.0002],
+        'position_lr_final' : [0],
+        'iterations' :[1300],#[5000],#[900],# [1300], #1000
+
+        'densify_grad_threshold' : [0.00045],
+        'densify_until_iter' :[1200],#[3500],#[700],# [1100],#[1200], 850
+        'densify_from_iter':[700],#[700],#[300],# [700],#450
+        'scaling_lr': [0.00000005],
+        'rotation_lr': [0],
         # 'feature_lr': [0],
-        'scale_model' : [0.0005,0.005],
+        'scale_model' : [0.000],
         'model_rotation_lr' : [0.1],#[0.1,0.5],
-        'model_rotation_lr_rwing' : [2,0.1],#,[1,0.5],
-        'model_rotation_lr_lwing' : [2,0.1],#,[1,0.5],
-        'opacity_reset_interval' : [15],
-        # 'opacity_reset_interval' : [500],
-        # 'opacity_lr' : [0.1]#,0.12,0.08]
+        # 'model_rotation_lr_rwing' : [1],#,[1,0.5],
+        # 'model_rotation_lr_lwing' : [1],#,[1,0.5],
+        'model_wing_rotation_lr_init' : [0.5],#0.5
+        'model_wing_rotation_lr_final' : [0.1],
+        'model_rotation_lr_center' : [0.07],#0.07
+        'opcaity_init_iter': [700],#[700],
+        'opacity_reset_interval' : [15],#[15],
+        # 'body_location_init': [0.00003],
+        # 'body_location_final' : [0.00001],
         # 'opacity_lr' : [0.1],#,0.12,0.08]
+        'xyz_init_iter' : [400],#[400],#[100],#[400],#,0.12,0.08] #150
+        'wing_location' : [0],
+        'init_xyz_late' : [0.00016],#0.00016
+        'model_rotation_lr_twist' : [0.05],#0.05
+        'scaling_later' : [0.005]#[0.01]0.005
+
     }
+    model = {}
+    # model['wing_body_ini_pose'] = {'right_wing_angles' : [-110,-70.0,-0], # [-50,-180,-0.]-110,-70,-0 1015
+    #                             'left_wing_angles' : [80,-90,-0.0],#[0,-60,-0.0], # [30,-90,-10.0]80,-90,-0.0
+    #                             'body_angles' : [-110.0,  -45.0,  30],#[-110,-30,-6.],# -110.0,  -45.0,  30 1015
+    #                             'right_wing_angle_joint1' : 0.0,
+    #                             'left_wing_angle_joint1' : -0.0,
+    #                             'right_wing_angle_joint2' : 0.0,
+    #                             'left_wing_angle_joint2' : -0.0,
 
-
-
-    path = f'{lp.source_path}/dict/frames_model.pkl'
-    with open(path, 'rb') as file:
-        data_dict = pickle.load(file)
-
-            # Start GUI server, configure and run training
-    network_gui.init(args.ip, args.port)
-
-    right_wing_angle = []
-    left_wing_angle = []
-    body_angle = []
-
-    for idx,frame in enumerate(range(1430,2000)):#frame = 1448
-        
-        sweep_combinations = itertools.product(*sweep_params.values())
-
-        print("Optimizing " + args.model_path)
+    #                             'right_wing_twist_joint1' : 0.0,
+    #                             'left_wing_twist_joint1' : -0.0,
+    #                             'right_wing_twist_joint2' : 0.0,
+    #                             'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
     
-        safe_state(args.quiet)
+            # if idx == 0:
+    # model = {}
+
+    # model['wing_body_ini_pose'] = {'right_wing_angles' : [-0,-130,-0.], # -70 -130  [-60,-100,-0.]
+    #                                 'left_wing_angles' : [10,-130,-10.0], # 90 -130 [70,-150,10.0],
+    #                                 'body_angles' : [-105.0,  -25.0,  15],
+    #                                 'right_wing_angle_joint1' : 0.0,
+    #                                 'left_wing_angle_joint1' : -0.0,
+    #                                 'right_wing_angle_joint2' : 0.0,
+    #                                 'left_wing_angle_joint2' : -0.0,
+
+    #                                 'right_wing_twist_joint1' : 0.0,
+    #                                 'left_wing_twist_joint1' : -0.0,
+    #                                 'right_wing_twist_joint2' : 0.0,
+    #                                 'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
+
+      
+    model['wing_body_ini_pose'] = {'right_wing_angles' : [20,-160,-10.], # -70 -130  [-60,-100,-0.]
+                                    'left_wing_angles' : [-20,-160,15.0], # 90 -130 [70,-150,10.0],
+                                    'body_angles' : [170.0,  -45.0,  -10],
+                                    'right_wing_angle_joint1' : 10.0,
+                                    'left_wing_angle_joint1' : 10.0,
+                                    'right_wing_angle_joint2' : 10.0,
+                                    'left_wing_angle_joint2' : -0.0,
+
+                                    'right_wing_twist_joint1' : -10.0,
+                                    'left_wing_twist_joint1' : -10.0,
+                                    'right_wing_twist_joint2' : 0.0,
+                                    'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
 
 
-        path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
-
-        root,body,right_wing,left_wing,list_joints_pitch_update = model_utils.initilize_skeleton_and_skin(path_to_mesh,skeleton_scale=1/1000, skin_scale = 1)
-        joint_list,skin,weights,bones = model_utils.build_skeleton(root,body,right_wing,left_wing)
 
 
-        image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov30_2024_11_12_darkan/'
+
+    weights_list = []
+    # for idx,frame in enumerate(range(1430,1900,1)):#frame = 1448
+    root,body,right_wing,left_wing,model['list_joints_pitch_update'] = model_utils.initilize_skeleton_and_skin(path_to_mesh,skeleton_scale=1/1000, skin_scale = 1) # 1/200 fly- 1/1000, change also nerf
+    model['joint_list'],model['skin'],model['weights'],model['bones'] = model_utils.build_skeleton(root,body,right_wing,left_wing)
+    sweep_combinations = list(itertools.product(*sweep_params.values()))
+
+
+    for idx,frame in enumerate(range(frame_start,frame_end,1)):#frame = 1448
+ 
+        op.calc_model = True
         frames_per_cam = [Frame(image_path,frame,cam_num,frames_dict = data_dict) for cam_num in range(4)]
         camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
         camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
         cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
 
 
-        
-        if idx == 0:
-            model = {}
-            model['wing_body_ini_pose'] = {'right_wing_angles_initial' : [-0,-130,-0.], # -70 -130  [-60,-100,-0.]
-                                            'left_wing_angles_initial' : [0,-130,10.0], # 90 -130 [70,-150,10.0],
-                                            'body_angles_initial' : [-95.0,  -25.0,  0]} # -100 -25  [-95.0,  -25.0,  0]
 
-
-        model['list_joints_pitch_update'] = list_joints_pitch_update
-        model['joint_list'] = joint_list
-        model['skin'] = skin
-        model['weights'] = weights
-        model['bones'] = bones
-        
+        model = run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_start,frame_end,update_from_prev_frame = True)
 
 
 
-        # Loop through each combination of parameters
-        for combination in sweep_combinations:
-            param_values = dict(zip(sweep_params.keys(), combination))
 
-            # Update optimization parameters
-            # op.lambda_dist = lambda_dist
-            # op.lambda_normal = lambda_normal
-
-            # Update optimization parameters dynamically
-            for key, value in param_values.items():
-                setattr(op, key, value)  # Update the parameter in `op`
-
-            # Set anomaly detection if enabled
-            torch.autograd.set_detect_anomaly(args.detect_anomaly)
-
-            # Load data
-
-            # data_dict = data_dict_original.copy()
-            
-
-            model['ew_to_lab'] = list(data_dict[frame][1].values())[0]['ew_to_lab']
-            cm_point_lab = model['ew_to_lab'] @ cm_point
-            cm_point_lab = cm_point_lab #+ np.array([0.00,-0.0006,0.0001])
-
-            model['wing_body_ini_pose']['body_location_initial'] = cm_point_lab
-            # model['skin'] = model['skin']
-            # model['skin'] = torch.matmul(torch.tensor(model['ew_to_lab'].T).cuda().float() , model['skin'].T).T + torch.tensor(cm_point).cuda().float()
-            # Generate all combinations of hyperparameters using itertools.product
-    
-            # model_name = f'model_position_lr_init_{param_values["model_position_lr_init"]}model_rotation_lr{param_values["model_rotation_lr"]}model_rotation_lr_rwing{param_values["model_rotation_lr_rwing"]}model_rotation_lr_lwing{param_values["model_rotation_lr_lwing"]}'
-            model_name = f"lw_{param_values['model_rotation_lr_lwing']}_rw_{param_values['model_rotation_lr_rwing']}_body_{param_values['model_rotation_lr']}"
-
-            # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_sweep7/", f"{key}/minth_less6_fly_size_iter_{param_values['iterations']}_posini_{param_values['position_lr_init']}_posfin{param_values['position_lr_final']}_sclr_{param_values['scaling_lr']}_inidens_{param_values['densify_from_iter']}__findens_{param_values['densify_from_iter']}/")
-            lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/model_sweep_angleslr2/", f"{frame}/{model_name}/")
-            # lp.model_path = os.path.join(f"D:/Documents/gaussian_model_output/hull_3dgs/", f"{key}/default/")
-            gauss = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
-
-            model['wing_body_ini_pose']['right_wing_angles_initial']  = gauss.right_wing_angles.cpu().detach().tolist() # -70 -130
-            model['wing_body_ini_pose']['left_wing_angles_initial']  = gauss.left_wing_angles.cpu().detach().tolist() # 90 -130
-            model['wing_body_ini_pose']['body_angles_initial']= gauss.body_angles.cpu().detach().tolist() # -100 -25
-
-
-            right_wing_angle.append(gauss.right_wing_angles.cpu().detach().numpy())
-            left_wing_angle.append(gauss.left_wing_angles.cpu().detach().numpy())
-            body_angle.append(gauss.body_angles.cpu().detach().numpy())
-
-            # Save parameters to a text file
-            params_path = os.path.join(lp.model_path, "params.txt")
-            with open(params_path, "w") as f:
-                json.dump(param_values, f, indent=4)  # Save as formatted JSON
-
-
-    angles = [np.vstack(right_wing_angle),np.vstack(left_wing_angle),np.vstack(body_angle)]
-    with open('D:/Documents/gaussian_model_output/model_lowres/angles.pkl', 'wb') as handle:
-        pickle.dump(angles, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # for dist2_th_min in [0.0000000001]:#[0.0000001,0.00000001,0.000000001]:
-        #     for scaling_lr in [0.005]:
-
-        # # op.feature_lr = feature_lr
-        #             lp.dist2_th_min = dist2_th_min
-        #             op.scaling_lr = scaling_lr
-        #             op.position_lr_init = position_lr_init
-        #             op.position_lr_final = position_lr_init/100
-                    
-        #             hparams = {
-        #                 'iterations': op.iterations,
-        #                 'opacity_reset_interval': op.opacity_reset_interval,
-        #                 'learning_rate': op.scaling_lr,
-        #                 'densify_grad_threshold': op.densify_grad_threshold,
-        #                 'position_lr_init':op.position_lr_init,
-        #                 'densify_from_iter': op.densify_from_iter,
-        #                 'percent_dense':op.percent_dense,
-        #                 'min dist':lp.dist2_th_min,
-        #                 'densification_interval' : op.densification_interval,
-        #                 'opacity_lr' : op.opacity_lr,
-        #                 'feature_lr': op.feature_lr,
-        #                 'lambda_dssim':op.lambda_dssim}
-
-
-        #             if os.path.exists("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply"):
-        #                 os.remove("D:/Documents/gaussian_splat_fly/2d_gs_time/data/fly_gray/dict/points3D.ply")
-
-        #             key = 900
-        #             path = f'{lp.source_path}/dict/frames_model.pkl'
-        #             with open(path, 'rb') as file:
-        #                 data_dict_original = pickle.load(file)
-
-
-
-        #             data_dict = data_dict_original.copy()
-        #             print("Optimizing " + args.model_path)
-
-        #             name_folder = f'scaling_lr{scaling_lr}_dist2_th_min{dist2_th_min}_position_lr_init{position_lr_init}_densify_from_iter{op.densify_from_iter}_densify_until_iter{op.densify_until_iter}'
-        #             name_folder = f'zbuff_scaling_lr{scaling_lr}_iterations{op.iterations}_densify_grad_threshold{op.densify_grad_threshold}_fin16'
-        #             name_folder = f'model_try_3d'
-        #             lp.model_path = os.path.join(f"D:/Documents/model_output/{name_folder}/", f'{key}/')
-
-        #             training(lp, op, pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[key])
-
-                    # All done
     print("\nframe complete.")

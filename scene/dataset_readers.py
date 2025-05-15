@@ -68,6 +68,7 @@ def getNerfppNorm(cam_info):
     center, diagonal = get_center_and_diag(cam_centers)
     radius = diagonal * 1.1
     radius = 2/1000 # added 0.01
+    # radius = 2/100 # added 0.01
 
     translate = -center
 
@@ -326,7 +327,7 @@ def readDictSceneInfo(path, images,depths, eval, data_dict, llffhold=8):
     
     cam_infos_unsorted = readColmapCameras(
         cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, depths_params=depths_params,
-        images_folder=os.path.join(path, reading_dir), 
+        images_folder=os.path.join(data_dict[-1]['image_path']), 
         depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=test_cam_names_list)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 

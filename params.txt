@@ -1,0 +1,21 @@
+{
+    "position_lr_final": 0,
+    "iterations": 1,
+    "densify_grad_threshold": 0.00045,
+    "densify_until_iter": 800,
+    "densify_from_iter": 200,
+    "scaling_lr": 5e-08,
+    "rotation_lr": 0,
+    "scale_model": 0.0,
+    "model_rotation_lr": 0.1,
+    "model_wing_rotation_lr_init": 0.5,
+    "model_wing_rotation_lr_final": 0.1,
+    "model_rotation_lr_center": 0.07,
+    "opcaity_init_iter": 200,
+    "opacity_reset_interval": 15,
+    "xyz_init_iter": 100,
+    "wing_location": 0,
+    "init_xyz_late": 0.00016,
+    "model_rotation_lr_twist": 0.05,
+    "scaling_later": 0.005
+}

@@ -95,17 +95,30 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
+        self.scaling_later = 0.01
 
         self.opcaity_init_iter = 500
+        self.position_init_iter = 1000
+        self.init_xyz_late = 0.00016
         
         self.body_location_init = 0.0001
         self.body_location_final = 0.0000000001
         self.weights_lr = 0
         self.model_rotation_lr = 0.1
+        self.model_rotation_lr_center = 0.07
+        self.model_rotation_lr_twist = 0.01
+
+        self.model_wing_rotation_lr_init = 0.65
+        self.model_wing_rotation_lr_final = 0.65
+
+        self.wing_angles_twist = 0
+
+        self.xyz_init_iter = 1000
         self.model_rotation_lr_rwing = 0.1
         self.model_rotation_lr_lwing = 0.1
         self.scale_model = 0.005
         self.random_background = False
+        self.wing_location = 0.001
         self.optimizer_type = "default"
         super().__init__(parser, "Optimization Parameters")
 

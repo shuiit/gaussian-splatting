@@ -40,7 +40,7 @@ class Skin():
         bones = bones if bones else self.bones
         weights = torch.vstack([joint.bone.calculate_dist_from_bone(self.ptcloud_skin) for joint in bones]).T
         idx = torch.argmin(weights, axis=1)
-        weights = torch.zeros((weights.shape[0],len(self.bones)))
+        weights = torch.zeros((weights.shape[0],len(bones)))
         weights[torch.arange(weights.shape[0]), idx] = 1
         self.weights = weights
 

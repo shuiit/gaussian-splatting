@@ -171,7 +171,7 @@ class GaussianModel:
         weights = model['weights'].cuda()
 
         fused_point_cloud = model['skin']
-        color = weights/255*torch.tensor([0,0,0,180,180]).cuda()
+        color = weights/255*torch.tensor([0,0,0,180,180,180,180,180,180]).cuda()
         color = color.sum(1).repeat(3,1).T
         fused_color = RGB2SH(color.float())
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
@@ -185,11 +185,27 @@ class GaussianModel:
         self.ew_to_lab = torch.tensor(model['ew_to_lab']).float().cuda()
 
 
-        right_wing_angles = torch.tensor(wing_body_pose['right_wing_angles_initial'],device='cuda')#self.bones[3].local_angles
-        left_wing_angles = torch.tensor(wing_body_pose['left_wing_angles_initial'],device='cuda')#self.bones[4].local_angles
+        right_wing_angles = torch.tensor(wing_body_pose['right_wing_angles'],device='cuda')#self.bones[3].local_angles
+        left_wing_angles = torch.tensor(wing_body_pose['left_wing_angles'],device='cuda')#self.bones[4].local_angles
+        right_wing_angle_joint1 = torch.tensor(wing_body_pose['right_wing_angle_joint1'],device='cuda')#self.bones[3].local_angles
+        left_wing_angle_joint1 = torch.tensor(wing_body_pose['left_wing_angle_joint1'],device='cuda')#self.bones[4].local_angles
 
-        body_location = torch.tensor(wing_body_pose['body_location_initial'],device='cuda')
-        body_angles = torch.tensor(wing_body_pose['body_angles_initial'],device='cuda')
+        right_wing_twist_joint1 = torch.tensor(wing_body_pose['right_wing_twist_joint1'],device='cuda')#self.bones[3].local_angles
+        left_wing_twist_joint1 = torch.tensor(wing_body_pose['left_wing_twist_joint1'],device='cuda')#self.bones[4].local_angles
+
+        right_wing_angle_joint2 = torch.tensor(wing_body_pose['right_wing_angle_joint2'],device='cuda')#self.bones[3].local_angles
+        left_wing_angle_joint2 = torch.tensor(wing_body_pose['left_wing_angle_joint2'],device='cuda')#self.bones[4].local_angles
+
+        right_wing_twist_joint2 = torch.tensor(wing_body_pose['right_wing_twist_joint2'],device='cuda')#self.bones[3].local_angles
+        left_wing_twist_joint2 = torch.tensor(wing_body_pose['left_wing_twist_joint2'],device='cuda')#self.bones[4].local_angles
+
+
+        # left_wing_root_location = torch.tensor(wing_body_pose['left_wing_root'],device='cuda')
+        # right_wing_root_location = torch.tensor(wing_body_pose['right_wing_root'],device='cuda')
+
+        body_location = torch.tensor(wing_body_pose['body_location'],device='cuda')
+        body_angles = torch.tensor(wing_body_pose['body_angles'],device='cuda')
+
 
 
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
@@ -207,7 +223,7 @@ class GaussianModel:
         rots[:, 0] = 1
 
        
-        opa = weights*torch.tensor([0.3,0.3,0.3,0.1,0.1]).cuda()
+        opa = weights*torch.tensor([0.3,0.3,0.3,0.1,0.1,0.1,0.1,0.1,0.1]).cuda()
         opa = opa.sum(1).unsqueeze(1)
 
 
@@ -234,6 +250,24 @@ class GaussianModel:
         self.right_wing_angles = nn.Parameter(right_wing_angles.requires_grad_(True))
         self.left_wing_angles = nn.Parameter(left_wing_angles.requires_grad_(True))
 
+        self.right_wing_angle_joint1 = nn.Parameter(right_wing_angle_joint1.requires_grad_(True))
+        self.left_wing_angle_joint1 = nn.Parameter(left_wing_angle_joint1.requires_grad_(True))
+        self.right_wing_twist_joint1 = nn.Parameter(right_wing_twist_joint1.requires_grad_(True))
+        self.left_wing_twist_joint1 = nn.Parameter(left_wing_twist_joint1.requires_grad_(True))
+        self.right_wing_angle_joint2 = nn.Parameter(right_wing_angle_joint2.requires_grad_(True))
+        self.left_wing_angle_joint2 = nn.Parameter(left_wing_angle_joint2.requires_grad_(True))
+        self.right_wing_twist_joint2 = nn.Parameter(right_wing_twist_joint2.requires_grad_(True))
+        self.left_wing_twist_joint2 = nn.Parameter(left_wing_twist_joint2.requires_grad_(True))
+
+
+
+
+
+        # self.right_wing_angles_twist = nn.Parameter(right_wing_angles_twist.requires_grad_(True))
+        # self.left_wing_angles_twist = nn.Parameter(left_wing_angles_twist.requires_grad_(True))
+
+        # self.left_wing_root = nn.Parameter(left_wing_root_location.requires_grad_(True))
+        # self.right_wing_root = nn.Parameter(right_wing_root_location.requires_grad_(True))
 
 
 
@@ -277,13 +311,29 @@ class GaussianModel:
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self.right_wing_angles], 'lr': training_args.model_rotation_lr_rwing, "name": "right_wing_angles"},
-            {'params': [self.left_wing_angles], 'lr': training_args.model_rotation_lr_lwing, "name": "left_wing_angles"},
+            {'params': [self.right_wing_angles], 'lr': training_args.model_wing_rotation_lr_init, "name": "right_wing_angles"},
+            {'params': [self.left_wing_angles], 'lr': training_args.model_wing_rotation_lr_init, "name": "left_wing_angles"},
             {'params': [self.body_angles], 'lr': training_args.model_rotation_lr, "name": "body_angles"},
             {'params': [self.body_location], 'lr': training_args.body_location_init, "name": "body_location"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
             {'params': [self.weights], 'lr': training_args.weights_lr, "name": "weights"},
-            {'params': [self.scale_model], 'lr': training_args.scale_model, "name": "scale_model"}
+            {'params': [self.scale_model], 'lr': training_args.scale_model, "name": "scale_model"},
+
+
+            {'params': [self.right_wing_angle_joint1], 'lr': training_args.model_rotation_lr_center, "name": "right_wing_angle_joint1"},
+            {'params': [self.left_wing_angle_joint1], 'lr': training_args.model_rotation_lr_center, "name": "left_wing_angle_joint1"},
+
+            {'params': [self.right_wing_twist_joint1], 'lr': training_args.model_rotation_lr_twist, "name": "right_wing_twist_joint1"},
+            {'params': [self.left_wing_twist_joint1], 'lr': training_args.model_rotation_lr_twist, "name": "left_wing_twist_joint1"},
+            
+            {'params': [self.right_wing_angle_joint2], 'lr': training_args.model_rotation_lr_center, "name": "right_wing_angle_joint2"},
+            {'params': [self.left_wing_angle_joint2], 'lr': training_args.model_rotation_lr_center, "name": "left_wing_angle_joint2"},
+
+            {'params': [self.right_wing_twist_joint2], 'lr': training_args.model_rotation_lr_twist, "name": "right_wing_twist_joint2"},
+            {'params': [self.left_wing_twist_joint2], 'lr': training_args.model_rotation_lr_twist, "name": "left_wing_twist_joint2"},
+
+            # {'params': [self.left_wing_root], 'lr': training_args.wing_location, "name": "left_wing_root"},
+            # {'params': [self.right_wing_root], 'lr': training_args.wing_location, "name": "right_wing_root"},
 
         ]
 
@@ -313,6 +363,12 @@ class GaussianModel:
                                                 lr_delay_steps=training_args.exposure_lr_delay_steps,
                                                 lr_delay_mult=training_args.exposure_lr_delay_mult,
                                                 max_steps=training_args.iterations)
+        
+        
+        self.rotation_scheduler_args = get_expon_lr_func(training_args.model_wing_rotation_lr_init, training_args.model_wing_rotation_lr_final,
+                                                lr_delay_steps=training_args.exposure_lr_delay_steps,
+                                                lr_delay_mult=training_args.exposure_lr_delay_mult,
+                                                max_steps=training_args.iterations)
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
@@ -328,6 +384,10 @@ class GaussianModel:
             
             if param_group["name"] == "body_location":
                 lr = self.location_scheduler_args(iteration)
+                param_group['lr'] = lr
+            
+            if (param_group["name"] == "right_wing_angles") or (param_group["name"] == "left_wing_angles"):
+                lr = self.rotation_scheduler_args(iteration)
                 param_group['lr'] = lr
                 # return lr
 
@@ -347,9 +407,15 @@ class GaussianModel:
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
+        # right_wing_angles_center = torch.tensor([0.0,0.0,self.right_wing_angles_center]).float().cuda()
+        # left_wing_angles_center = torch.tensor([0.0,0.0,self.left_wing_angles_center]).float().cuda()
+
         means3D = model_utils.transform_pose(self._xyz,self.weights,self.body_angles,
                                     self.list_joints_pitch_update,self.joint_list,self.bones,self.body_location,
-                                    self.right_wing_angles,self.left_wing_angles)
+                                    self.right_wing_angles,self.left_wing_angles,self.right_wing_angle_joint1,self.left_wing_angle_joint1,
+                                    self.right_wing_twist_joint1,self.left_wing_twist_joint1,
+                                    self.right_wing_angle_joint2,self.left_wing_angle_joint2,
+                                    self.right_wing_twist_joint2,self.left_wing_twist_joint2)
 
         means3D = torch.matmul(self.ew_to_lab.T,means3D.T).T
         xyz = means3D.detach().cpu().numpy()
@@ -369,6 +435,7 @@ class GaussianModel:
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
+
 
     def reset_opacity(self):
         opacities_new = self.inverse_opacity_activation(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
@@ -447,19 +514,20 @@ class GaussianModel:
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             stored_state = self.optimizer.state.get(group['params'][0], None)
-            if len(stored_state["exp_avg"]) == len(mask):
-                if (stored_state is not None):
-                    stored_state["exp_avg"] = stored_state["exp_avg"][mask]
-                    stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
+            if stored_state != None:
+                if (stored_state["exp_avg"].dim() > 0 and len(stored_state["exp_avg"]) == len(mask)):
+                    if (stored_state is not None):
+                        stored_state["exp_avg"] = stored_state["exp_avg"][mask]
+                        stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
 
-                    del self.optimizer.state[group['params'][0]]
-                    group["params"][0] = nn.Parameter((group["params"][0][mask].requires_grad_(True)))
-                    self.optimizer.state[group['params'][0]] = stored_state
+                        del self.optimizer.state[group['params'][0]]
+                        group["params"][0] = nn.Parameter((group["params"][0][mask].requires_grad_(True)))
+                        self.optimizer.state[group['params'][0]] = stored_state
 
-                    optimizable_tensors[group["name"]] = group["params"][0]
-                else:
-                    group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
-                    optimizable_tensors[group["name"]] = group["params"][0]
+                        optimizable_tensors[group["name"]] = group["params"][0]
+                    else:
+                        group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
+                        optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
     def prune_points(self, mask):

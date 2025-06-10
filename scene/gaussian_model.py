@@ -21,7 +21,9 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+# import utils.model_utils as model_utils
 import utils.model_utils as model_utils
+
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
 except:
@@ -199,6 +201,8 @@ class GaussianModel:
         right_wing_twist_joint2 = torch.tensor(wing_body_pose['right_wing_twist_joint2'],device='cuda')#self.bones[3].local_angles
         left_wing_twist_joint2 = torch.tensor(wing_body_pose['left_wing_twist_joint2'],device='cuda')#self.bones[4].local_angles
 
+        thorax_ang = torch.tensor(wing_body_pose['thorax_ang'],device='cuda')#self.bones[4].local_angles
+
 
         # left_wing_root_location = torch.tensor(wing_body_pose['left_wing_root'],device='cuda')
         # right_wing_root_location = torch.tensor(wing_body_pose['right_wing_root'],device='cuda')
@@ -260,6 +264,7 @@ class GaussianModel:
         self.left_wing_twist_joint2 = nn.Parameter(left_wing_twist_joint2.requires_grad_(True))
 
 
+        self.thorax_ang = nn.Parameter(thorax_ang.requires_grad_(True))
 
 
 
@@ -331,6 +336,9 @@ class GaussianModel:
 
             {'params': [self.right_wing_twist_joint2], 'lr': training_args.model_rotation_lr_twist, "name": "right_wing_twist_joint2"},
             {'params': [self.left_wing_twist_joint2], 'lr': training_args.model_rotation_lr_twist, "name": "left_wing_twist_joint2"},
+
+
+            {'params': [self.thorax_ang], 'lr': training_args.thorax_lr, "name": "thorax_ang"},
 
             # {'params': [self.left_wing_root], 'lr': training_args.wing_location, "name": "left_wing_root"},
             # {'params': [self.right_wing_root], 'lr': training_args.wing_location, "name": "right_wing_root"},
@@ -415,7 +423,7 @@ class GaussianModel:
                                     self.right_wing_angles,self.left_wing_angles,self.right_wing_angle_joint1,self.left_wing_angle_joint1,
                                     self.right_wing_twist_joint1,self.left_wing_twist_joint1,
                                     self.right_wing_angle_joint2,self.left_wing_angle_joint2,
-                                    self.right_wing_twist_joint2,self.left_wing_twist_joint2)
+                                    self.right_wing_twist_joint2,self.left_wing_twist_joint2, self.thorax_ang)
 
         means3D = torch.matmul(self.ew_to_lab.T,means3D.T).T
         xyz = means3D.detach().cpu().numpy()

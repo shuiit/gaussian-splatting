@@ -112,6 +112,7 @@ class OptimizationParams(ParamGroup):
         self.model_wing_rotation_lr_final = 0.65
 
         self.wing_angles_twist = 0
+        self.thorax_lr = 0
 
         self.xyz_init_iter = 1000
         self.model_rotation_lr_rwing = 0.1

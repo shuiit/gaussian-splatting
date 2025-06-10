@@ -70,7 +70,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                                 pc.right_wing_angles,pc.left_wing_angles,pc.right_wing_angle_joint1,pc.left_wing_angle_joint1,
                                 pc.right_wing_twist_joint1,pc.left_wing_twist_joint1,
                                 pc.right_wing_angle_joint2,pc.left_wing_angle_joint2,
-                                pc.right_wing_twist_joint2,pc.left_wing_twist_joint2)
+                                pc.right_wing_twist_joint2,pc.left_wing_twist_joint2, pc.thorax_ang)
     
 
 

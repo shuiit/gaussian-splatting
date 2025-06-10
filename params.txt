@@ -1,6 +1,6 @@
 {
     "position_lr_final": 0,
-    "iterations": 1,
+    "iterations": 1000,
     "densify_grad_threshold": 0.00045,
     "densify_until_iter": 800,
     "densify_from_iter": 200,

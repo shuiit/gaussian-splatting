@@ -177,7 +177,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+            l1, psnr = training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -245,7 +245,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-    return gaussians,weights_dict
+    return gaussians,weights_dict,l1, psnr,ssim_value.detach().cpu().numpy()
 
 
 def prepare_output_and_logger(args):    
@@ -271,6 +271,8 @@ def prepare_output_and_logger(args):
     return tb_writer
 
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, train_test_exp):
+    l1_test = 0.0
+    psnr_test = 0.0
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -281,6 +283,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
         torch.cuda.empty_cache()
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
+
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
@@ -310,6 +313,9 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
+        psnr_test = np.array(psnr_test.cpu())
+        l1_test = np.array(l1_test.cpu())
+    return l1_test,psnr_test
 
 
 def save_run_params(param_values,weights_dict,angle_history,model_name):
@@ -343,7 +349,7 @@ def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,update_
 
         model['ew_to_lab'] = list(data_dict[frame][1].values())[0]['ew_to_lab']
         model['wing_body_ini_pose']['body_location'] = model['ew_to_lab'] @ cm_point
-        gauss,weights_dict = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
+        gauss,weights_dict,l1, psnr,ssim = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
         
         if update_from_prev_frame == True:
             model['wing_body_ini_pose'] = {key: getattr(gauss, key).cpu().detach().tolist()for key in params_to_update}
@@ -354,6 +360,7 @@ def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,update_
             # angle_history[key].append(tensor.cpu().detach().numpy())
             angle_history[key] = [tensor.cpu().detach().numpy()]
         weights_list.append(weights_dict)
+        param_values['loss'] = {'l1':l1,'psnr':psnr,'ssim':ssim}
 
         # Save parameters to a text file
         
@@ -408,13 +415,12 @@ if __name__ == "__main__":
 
     path_to_save = 'D:/Documents/gaussian_model_output/fly_to_bee'
     path_to_save = 'D:/Documents/gaussian_model_output/fly_fast'
-    path_to_save = 'D:/Documents/gaussian_model_output/fly_angle_sweeps_roll_yaw_nom_all_frames_1000_roll'
 
     # image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov7_2024_11_12_darkan/'
 
 
 
-    path = f'{lp.source_path}/dict/frames_model_evaluation.pkl'
+    path = f'{lp.source_path}/dict/frames_model_evaluation_v2.pkl'
     update_from_prev_frame = True
     params_to_update = {'right_wing_angles','left_wing_angles','body_angles',
                             'left_wing_angle_joint1','left_wing_angle_joint2',
@@ -479,11 +485,28 @@ if __name__ == "__main__":
 
 
 
-    yaw_grid = np.hstack((0.0,np.arange(-20.0,0,5),np.arange(5.0,20,5)))
-    roll_grid = np.hstack((0.0,np.arange(5,30,5),np.arange(-30,0,5)))
+    yaw_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,25,5)))
+    roll_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+
+    pitch_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+    pitch_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,30,5)))
+
+
+    pitch_grid = np.hstack((np.arange(-30.0,0,10),np.arange(10.0,50,10)))
 
     roll_yaw = list(itertools.product(yaw_grid,roll_grid))
-    roll_yaw = roll_grid
+    roll_yaw = pitch_grid
+
+
+
+
+
+    run_angles = ['yaw','pitch','roll','phi_right','psi_right','theta_right','phi_left','psi_left','theta_left']
+    update_initial_angles_key = [['body_angles',0],['body_angles',1],['body_angles',2],
+                      ['right_wing_angles',0],['right_wing_angles',1],['right_wing_angles',2],
+                      ['left_wing_angles',0],['left_wing_angles',1],['left_wing_angles',2]]
+
+
     # pitch_grid = np.hstack((0.0,np.arange(-20,0,5),np.arange(5,20,5)))
 
     input_dir = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/evaluation'
@@ -493,6 +516,7 @@ if __name__ == "__main__":
 
 
     model['wing_body_ini_pose'] = list(nominal_initial_angles.values())[0]
+    model['wing_body_ini_pose']['thorax_ang'] = 0.0
 
 
 
@@ -503,35 +527,39 @@ if __name__ == "__main__":
     sweep_combinations = list(itertools.product(*sweep_params.values()))
 
 
-    for idx,(key,nominal) in enumerate(nominal_initial_angles.items()):#frame = 1448
+    for key,nominal in tqdm(list(nominal_initial_angles.items()), total=len(list(nominal_initial_angles.items()))):#frame = 1448
         mov = int(key.split('_')[1]) 
         frame = int(key.split('_')[3]) 
-        print(f'{key}')
-
-        image_path = f'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov{mov}_2023_08_09_60ms/'
-
-        model['wing_body_ini_pose'] = nominal
-        copy_model = copy.deepcopy(model)
+        image_path = f'D:/Documents/data_for_eval/mov{mov}_2023_08_09_60ms/'
+        
+        
+        for save_angle_file,run_angle in zip(run_angles,update_initial_angles_key):
+            path_to_save = f'D:/Documents/gaussian_model_output/fly_{save_angle_file}_delta10_sweep_m40_40'
+            model['wing_body_ini_pose'] = nominal
+            copy_model = copy.deepcopy(model)
         
 
 
-        for idx,(delta_roll) in enumerate(roll_yaw):
-            ini_dir = os.makedirs(os.path.join(path_to_save,str(frame),'initial'), exist_ok = True)
+            for idx,(delta_roll) in enumerate(roll_yaw):
+                ini_dir = os.makedirs(os.path.join(path_to_save,str(frame),'initial'), exist_ok = True)
 
-            with open(f'{path_to_save}/{frame}/initial/initial_angles_{idx}', 'wb') as handle:
-                pickle.dump(dict(copy_model['wing_body_ini_pose']), handle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open(f'{path_to_save}/{frame}/initial/initial_angles_{idx}', 'wb') as handle:
+                    pickle.dump(dict(copy_model['wing_body_ini_pose']), handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-            op.calc_model = True
-            frames_per_cam = [Frame(image_path,frame,cam_num,frames_dict = data_dict) for cam_num in range(4)]
-            camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
-            camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
-            cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
+                op.calc_model = True
+                frames_per_cam = [Frame(image_path,frame,cam_num,frames_dict = data_dict) for cam_num in range(4)]
+                camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
+                camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
+                cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
 
 
-
-            run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,copy_model,update_from_prev_frame = False,idx_iter = idx)
-            copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll + model['wing_body_ini_pose']['body_angles'][2])
-            # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll)
+                copy_model['wing_body_ini_pose']['thorax_ang'] = 0.0
+                run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,copy_model,update_from_prev_frame = False,idx_iter = idx)
+                # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll + model['wing_body_ini_pose']['body_angles'][2])
+                # copy_model['wing_body_ini_pose']['body_angles'][1] = float(delta_roll + model['wing_body_ini_pose']['body_angles'][1])
+                # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll)
+                copy_model['wing_body_ini_pose'][run_angle[0]][run_angle[1]] = float(delta_roll + model['wing_body_ini_pose'][run_angle[0]][run_angle[1]])
+            
 
             # angle_noise_std = 10
             

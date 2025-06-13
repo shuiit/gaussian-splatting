@@ -44,10 +44,17 @@ def initilize_skeleton_and_skin(path_to_mesh,skeleton_scale = 1,skin_scale = 1):
     list_joints_pitch_update = [neck,right_sp_no_bone,left_sp_no_bone]
 
 #right_wing_large_thin_y2
+    # regular mesh----------------------------------------------------------------------
     body = Skin(f'{path_to_mesh}/body_remesh.stl',scale = skin_scale,color = 'lime')
     right_wing = Skin(f'{path_to_mesh}/right_wing_large_thin_y2.stl',scale = skin_scale,constant_weight = right_wing_root,color = 'crimson')
     left_wing = Skin(f'{path_to_mesh}/left_wing_large_thin_y2.stl',scale = skin_scale, constant_weight = left_wing_root,color = 'dodgerblue')
     
+
+    # body = Skin(f'{path_to_mesh}/body_ellips.stl',scale = skin_scale,color = 'lime')
+    # right_wing = Skin(f'{path_to_mesh}/right_wing_rec.stl',scale = skin_scale,constant_weight = right_wing_root,color = 'crimson')
+    # left_wing = Skin(f'{path_to_mesh}/left_wing_rec.stl',scale = skin_scale, constant_weight = left_wing_root,color = 'dodgerblue')
+    
+
     # body = Skin(f'{path_to_mesh}/body_bee_v3.stl',scale = skin_scale,color = 'lime')
     # right_wing = Skin(f'{path_to_mesh}/right_wing_v3.stl',scale = skin_scale,constant_weight = right_wing_root,color = 'crimson')
     # left_wing = Skin(f'{path_to_mesh}/left_wing_v3.stl',scale = skin_scale, constant_weight = left_wing_root,color = 'dodgerblue')

@@ -384,8 +384,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,100,500,1000,1200,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,100,500,1000,1200,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,500,1000,1200,1500,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,500,1000,1200,1500,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -407,7 +407,7 @@ if __name__ == "__main__":
     path_to_save = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/model_run'
 
 
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
+    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh_for_eval'
 
     image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov30_2024_11_12_darkan/'
 
@@ -454,10 +454,10 @@ if __name__ == "__main__":
         # 'position_lr_max_steps': [30_000],
         # 'position_lr_init' : [0.0002],
         'position_lr_final' : [0],
-        'iterations' :[1000],#[5000],#[900],# [1300], #1000
+        'iterations' :[1500],#[5000],#[900],# [1300], #1000
 
         'densify_grad_threshold' : [0.00045],
-        'densify_until_iter' :[800],#[3500],#[700],# [1100],#[1200], 850
+        'densify_until_iter' :[1500],#[3500],#[700],# [1100],#[1200], 850
         'densify_from_iter':[200],#[700],#[300],# [700],#450
         'scaling_lr': [0.00000005],
         'rotation_lr': [0],
@@ -499,7 +499,7 @@ if __name__ == "__main__":
 
     roll_yaw = list(itertools.product(yaw_grid,pitch_grid,roll_grid))[1:-1]
     roll_yaw.append((0.0,0.0,0.0))
-    # roll_yaw = pitch_grid
+    roll_yaw = [(0.0,0.0,0.0)]
 
 
 
@@ -537,7 +537,7 @@ if __name__ == "__main__":
         image_path = f'D:/Documents/data_for_eval/mov{mov}_2023_08_09_60ms/'
         
         
-        path_to_save = f'D:/Documents/gaussian_model_output/fly_right_wing_combo_delta10_5_sweep'
+        path_to_save = f'D:/Documents/gaussian_model_output/fly_mesh_evaluation_elipse_bod_rec_wing'
         model['wing_body_ini_pose'] = nominal
         copy_model = copy.deepcopy(model)
     
@@ -566,9 +566,9 @@ if __name__ == "__main__":
             # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll[2] + model['wing_body_ini_pose']['body_angles'][2])
 
 
-            copy_model['wing_body_ini_pose']['right_wing_angles'][0] = float(delta_roll[0] + model['wing_body_ini_pose']['right_wing_angles'][0])
-            copy_model['wing_body_ini_pose']['right_wing_angles'][1] = float(delta_roll[1] + model['wing_body_ini_pose']['right_wing_angles'][1])
-            copy_model['wing_body_ini_pose']['right_wing_angles'][2] = float(delta_roll[2] + model['wing_body_ini_pose']['right_wing_angles'][2])
+            # copy_model['wing_body_ini_pose']['right_wing_angles'][0] = float(delta_roll[0] + model['wing_body_ini_pose']['right_wing_angles'][0])
+            # copy_model['wing_body_ini_pose']['right_wing_angles'][1] = float(delta_roll[1] + model['wing_body_ini_pose']['right_wing_angles'][1])
+            # copy_model['wing_body_ini_pose']['right_wing_angles'][2] = float(delta_roll[2] + model['wing_body_ini_pose']['right_wing_angles'][2])
 
 
         # angle_noise_std = 10

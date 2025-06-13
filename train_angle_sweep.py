@@ -527,14 +527,14 @@ if __name__ == "__main__":
     sweep_combinations = list(itertools.product(*sweep_params.values()))
 
 
-    for key,nominal in tqdm(list(nominal_initial_angles.items()), total=len(list(nominal_initial_angles.items()))):#frame = 1448
+    for key,nominal in tqdm(list(nominal_initial_angles.items())[96:], total=len(list(nominal_initial_angles.items())[96:])):#frame = 1448
         mov = int(key.split('_')[1]) 
         frame = int(key.split('_')[3]) 
         image_path = f'D:/Documents/data_for_eval/mov{mov}_2023_08_09_60ms/'
         
         
         for save_angle_file,run_angle in zip(run_angles,update_initial_angles_key):
-            path_to_save = f'D:/Documents/gaussian_model_output/fly_{save_angle_file}_delta10_sweep_m40_40'
+            path_to_save = f'D:/Documents/gaussian_model_output/fly_{save_angle_file}_delta10_sweep_m40_40_try'
             model['wing_body_ini_pose'] = nominal
             copy_model = copy.deepcopy(model)
         

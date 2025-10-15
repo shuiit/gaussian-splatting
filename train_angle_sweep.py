@@ -527,7 +527,7 @@ if __name__ == "__main__":
     sweep_combinations = list(itertools.product(*sweep_params.values()))
 
 
-    for key,nominal in tqdm(list(nominal_initial_angles.items())[96:], total=len(list(nominal_initial_angles.items())[96:])):#frame = 1448
+    for key,nominal in tqdm(list(nominal_initial_angles.items())[0:96], total=len(list(nominal_initial_angles.items())[96:])):#frame = 1448
         mov = int(key.split('_')[1]) 
         frame = int(key.split('_')[3]) 
         image_path = f'D:/Documents/data_for_eval/mov{mov}_2023_08_09_60ms/'

@@ -177,7 +177,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+            l1, psnr = training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -245,7 +245,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-    return gaussians,weights_dict
+    return gaussians,weights_dict,l1, psnr,ssim_value.detach().cpu().numpy()
 
 
 def prepare_output_and_logger(args):    
@@ -271,6 +271,8 @@ def prepare_output_and_logger(args):
     return tb_writer
 
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, train_test_exp):
+    l1_test = 0.0
+    psnr_test = 0.0
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -281,6 +283,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
         torch.cuda.empty_cache()
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
+
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
@@ -310,26 +313,31 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
+        psnr_test = np.array(psnr_test.cpu())
+        l1_test = np.array(l1_test.cpu())
+    return l1_test,psnr_test
 
 
-def save_run_params(param_values,weights_dict,angle_history,model_name,frame_start,frame_end):
-    results = {'params': param_values,'weights': weights_dict,'angles': angle_history,'frames':range(frame_start,frame_end)}
+def save_run_params(param_values,weights_dict,angle_history,model_name):
+    # results = {'params': param_values,'weights': weights_dict,'angles': angle_history,'frames':range(frame_start,frame_end)}
+    results = {'params': param_values,'weights': weights_dict,'angles': angle_history}
     # Save all into one pickle file
-    results_path = os.path.join(path_to_save, f'{model_name}_results.pkl')
+    results_path = os.path.join(path_to_save,'results', f'{frame}',f'{model_name}_results.pkl')
+    os.makedirs(os.path.join(path_to_save,'results', f'{frame}',), exist_ok = True)
     with open(results_path, 'wb') as handle:
         pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_start,frame_end,update_from_prev_frame = True):
+def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,update_from_prev_frame = True,idx_iter = False):
     
     # Loop through each combination of parameters
+    weights_list = []
     for combination in sweep_combinations:
 
         param_values = dict(zip(sweep_params.keys(), combination))
         with open(os.path.join(lp.model_path, "params.txt"), "w") as f:
             json.dump(param_values, f, indent=4)
-        model_name = f"fly_cornell_mov9"
-        # model_name = f"mosquito"
+        model_name = f"fly_model_scale_iter{idx_iter}"
         lp.model_path = os.path.join(f"{path_to_save}", f"{frame}/{model_name}/")
 
         # Update optimization parameters dynamically
@@ -341,7 +349,7 @@ def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_s
 
         model['ew_to_lab'] = list(data_dict[frame][1].values())[0]['ew_to_lab']
         model['wing_body_ini_pose']['body_location'] = model['ew_to_lab'] @ cm_point
-        gauss,weights_dict = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
+        gauss,weights_dict,l1, psnr,ssim = training(lp, op, pp, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,data_dict[frame],model)
         
         if update_from_prev_frame == True:
             model['wing_body_ini_pose'] = {key: getattr(gauss, key).cpu().detach().tolist()for key in params_to_update}
@@ -349,14 +357,16 @@ def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_s
 
         for key in angle_history:
             tensor = getattr(gauss, key)
-            angle_history[key].append(tensor.cpu().detach().numpy())
+            # angle_history[key].append(tensor.cpu().detach().numpy())
+            angle_history[key] = [tensor.cpu().detach().numpy()]
         weights_list.append(weights_dict)
+        param_values['loss'] = {'l1':l1,'psnr':psnr,'ssim':ssim}
 
         # Save parameters to a text file
         
         torch.cuda.empty_cache()
 
-        save_run_params(param_values,weights_list,angle_history,model_name,frame_start,frame_end)
+        save_run_params(param_values,weights_list,angle_history,model_name)
         return model
 
 
@@ -374,8 +384,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,100,800,1000,1200,1400,1600,1800,2000,2200,2500,3000,4000,5000,6000,8000,10000,15000,20000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,100,800,1000,1200,1400,1600,1800,2000,2200,2500,3000,4000,5000,6000,8000,10000,15000,20000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[20,500,1000,1200,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[20,500,1000,1200,2000,2200,2800,3000,4000,5000,6000,8000,10000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -386,8 +396,12 @@ if __name__ == "__main__":
     lp = lp.extract(args)
     op = op.extract(args)
     pp = pp.extract(args)
-    frame_start = 1765
-    frame_end = 2147
+   
+
+    path_frames_mov_eval = 'D:/Documents/model_gaussian_splatting/generate_dict/matlab_to_python/output_formatted.txt'
+
+
+
 
     path_to_save = 'D:/Documents/gaussian_model_output/model_wings_center_1430_1900_dens_nodense_500'
     path_to_save = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/model_run'
@@ -395,39 +409,25 @@ if __name__ == "__main__":
 
     path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
 
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mosq'    
-
-
     image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov30_2024_11_12_darkan/'
-    image_path = 'D:/Documents/data_for_gs/mov1_2023_08_09_60ms/'
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov1_2023_08_09_60ms/'
 
 
-
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov2_2024_04_10_moquito/'
 
     path_to_save = 'D:/Documents/gaussian_model_output/fly_to_bee'
     path_to_save = 'D:/Documents/gaussian_model_output/fly_fast'
-    path_to_save = 'D:/Documents/gaussian_model_output/mosquito_like_fly_denser'
 
     # image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov7_2024_11_12_darkan/'
 
 
-    path_to_save = 'D:/Documents/gaussian_model_output/cornell_mov9'
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov9_cornell/'
 
-
-
-    path = f'{lp.source_path}/dict/frames_model_cornell.pkl'
+    path = f'{lp.source_path}/dict/frames_model_evaluation_v2.pkl'
     update_from_prev_frame = True
     params_to_update = {'right_wing_angles','left_wing_angles','body_angles',
                             'left_wing_angle_joint1','left_wing_angle_joint2',
                             'right_wing_angle_joint1','right_wing_angle_joint2',
                             'right_wing_twist_joint1','right_wing_twist_joint2',
-                            'left_wing_twist_joint1','left_wing_twist_joint2','thorax_ang'}
+                            'left_wing_twist_joint1','left_wing_twist_joint2'}
     
-
 
     
     angle_history = {key : [] for key in params_to_update}
@@ -444,108 +444,217 @@ if __name__ == "__main__":
     with open(path, 'rb') as file:
         data_dict = pickle.load(file)
     
+
+
+
     network_gui.init(args.ip, args.port)
     safe_state(args.quiet)
     # Generate all combinations of hyperparameters using itertools.product
     sweep_params = {
         # 'position_lr_max_steps': [30_000],
         # 'position_lr_init' : [0.0002],
-        # 'position_lr_final' : [0],
-        'iterations' :[2000],#[5000],#[900],# [1300], #1000
+        'position_lr_final' : [0],
+        'iterations' :[100],#[5000],#[900],# [1300], #1000
 
-        'densify_grad_threshold' : [0.00035],
-        'densify_until_iter' :[1200],#[3500],#[700],# [1100],#[1200], 850
-        'densify_from_iter':[700],#[700],#[300],# [700],#450
-        'scaling_lr': [0.0000005],
-        # 'rotation_lr': [0],
+        'densify_grad_threshold' : [0.00045],
+        'densify_until_iter' :[800],#[3500],#[700],# [1100],#[1200], 850
+        'densify_from_iter':[200],#[700],#[300],# [700],#450
+        'scaling_lr': [0.00000005],
+        'rotation_lr': [0],
         # 'feature_lr': [0],
-        'scale_model' : [0.0005],
-        'model_rotation_lr' : [0.1],#[0.1,0.5],
+        'scale_model' : [0.000],
+        'model_rotation_lr' : [0.1],#[0.1],#[0.1,0.5],
         # 'model_rotation_lr_rwing' : [1],#,[1,0.5],
         # 'model_rotation_lr_lwing' : [1],#,[1,0.5],
         'model_wing_rotation_lr_init' : [0.5],#0.5
         'model_wing_rotation_lr_final' : [0.1],
         'model_rotation_lr_center' : [0.07],#0.07
-        'opcaity_init_iter': [700],#[700],
+        'opcaity_init_iter': [200],#[700],
         'opacity_reset_interval' : [15],#[15],
         # 'body_location_init': [0.00003],
         # 'body_location_final' : [0.00001],
         # 'opacity_lr' : [0.1],#,0.12,0.08]
-        'xyz_init_iter' : [400],#[400],#[100],#[400],#,0.12,0.08] #150
+        'xyz_init_iter' : [100],#[400],#[100],#[400],#,0.12,0.08] #150
         'wing_location' : [0],
         'init_xyz_late' : [0.00016],#0.00016
         'model_rotation_lr_twist' : [0.05],#0.05
-        'scaling_later' : [0.005],
-        'thorax_lr' : [0.0],#[0.01]0.005
+        'scaling_later' : [0.005]#[0.01]0.005
 
     }
     model = {}
-    # model['wing_body_ini_pose'] = {'right_wing_angles' : [-110,-70.0,-0], # [-50,-180,-0.]-110,-70,-0 1015
-    #                             'left_wing_angles' : [80,-90,-0.0],#[0,-60,-0.0], # [30,-90,-10.0]80,-90,-0.0
-    #                             'body_angles' : [-110.0,  -45.0,  30],#[-110,-30,-6.],# -110.0,  -45.0,  30 1015
-    #                             'right_wing_angle_joint1' : 0.0,
-    #                             'left_wing_angle_joint1' : -0.0,
-    #                             'right_wing_angle_joint2' : 0.0,
-    #                             'left_wing_angle_joint2' : -0.0,
 
-    #                             'right_wing_twist_joint1' : 0.0,
-    #                             'left_wing_twist_joint1' : -0.0,
-    #                             'right_wing_twist_joint2' : 0.0,
-    #                             'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
+    yaw_grid = np.hstack((np.arange(-180.0,0,7),np.arange(10.0,180,7)))
+    roll_grid = np.hstack((np.arange(-20.0,0,10),np.arange(10.0,20,10)))
+
+    pitch_grid =np.hstack((np.arange(-60.0,0,15),np.arange(15.0,30,15)))
+
+
+    phi_grid = np.hstack((np.arange(-90.0,0,10),np.arange(0.0,90,10)))
+    theta_grid = np.hstack((np.arange(-30.0,0,15),np.arange(0.0,45,15)))
+    psi_grid = np.hstack((np.arange(-170.0,10,10)))
+    roll_yaw = list(itertools.product(yaw_grid,phi_grid,psi_grid))
+
+    # yaw_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,25,5)))
+    # roll_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+
+    # pitch_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+    # pitch_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,30,5)))
+
+
+    # pitch_grid = np.hstack((np.arange(-30.0,0,10),np.arange(10.0,50,10)))
+    # yaw_grid = np.hstack(np.arange(5.0,15,5))
+    # roll_grid = np.hstack(np.arange(5.0,15,5))
+    # pitch_grid = np.hstack(np.arange(5.0,15,5))
+
+    # roll_yaw = list(itertools.product(yaw_grid,pitch_grid,roll_grid))[1:-1]
+    # roll_yaw.append((0.0,0.0,0.0))
+    # roll_yaw = psi_grid
+    # roll_yaw = [0,0]
+
+
+
+
+    run_angles = ['yaw','pitch','roll','phi_right','psi_right','theta_right','phi_left','psi_left','theta_left']
+    update_initial_angles_key = [['body_angles',0],['body_angles',1],['body_angles',2],
+                      ['right_wing_angles',0],['right_wing_angles',1],['right_wing_angles',2],
+                      ['left_wing_angles',0],['left_wing_angles',1],['left_wing_angles',2]]
+
+
+    # pitch_grid = np.hstack((0.0,np.arange(-20,0,5),np.arange(5,20,5)))
+
+
+
+
+    input_dir = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/evaluation'
+
+    with open(f'{input_dir}/nominal_initial_angles.pkl', 'rb') as handle:
+        nominal_initial_angles = pickle.load(handle)
+
+
+    model['wing_body_ini_pose'] = list(nominal_initial_angles.values())[0]
+    model['wing_body_ini_pose']['thorax_ang'] = 0.0
+
+
+
     
-            # if idx == 0:
-    # model = {}
-
-    # model['wing_body_ini_pose'] = {'right_wing_angles' : [-0,-130,-0.], # -70 -130  [-60,-100,-0.]
-    #                                 'left_wing_angles' : [10,-130,-10.0], # 90 -130 [70,-150,10.0],
-    #                                 'body_angles' : [-105.0,  -25.0,  15],
-    #                                 'right_wing_angle_joint1' : 0.0,
-    #                                 'left_wing_angle_joint1' : -0.0,
-    #                                 'right_wing_angle_joint2' : 0.0,
-    #                                 'left_wing_angle_joint2' : -0.0,
-
-    #                                 'right_wing_twist_joint1' : 0.0,
-    #                                 'left_wing_twist_joint1' : -0.0,
-    #                                 'right_wing_twist_joint2' : 0.0,
-    #                                 'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
-
-      
-    model['wing_body_ini_pose'] = {'right_wing_angles' : [ 0.0 , 20.0  ,   10.0], # -70 -130  [-60,-100,-0.]
-                                    'left_wing_angles' :  [-0.0, 20.0,  0.0], # 90 -130 [70,-150,10.0],
-                                    'body_angles' : [0.0, 0.0, 240.0],
-                                    'right_wing_angle_joint1' : 0.0,
-                                    'left_wing_angle_joint1' : 0.0,
-                                    'right_wing_angle_joint2' : 0.0,
-                                    'left_wing_angle_joint2' : -0.0,
-
-                                    'right_wing_twist_joint1' : -0.0,
-                                    'left_wing_twist_joint1' : -0.0,
-                                    'right_wing_twist_joint2' : 0.0,
-                                    'left_wing_twist_joint2' : -0.0,
-                                    'thorax_ang': -0.0} # -100 -25  [-95.0,  -25.0,  0]
-
-
-
-
-
-    weights_list = []
     # for idx,frame in enumerate(range(1430,1900,1)):#frame = 1448
     root,body,right_wing,left_wing,model['list_joints_pitch_update'] = model_utils.initilize_skeleton_and_skin(path_to_mesh,skeleton_scale=1/1000, skin_scale = 1) # 1/200 fly- 1/1000, change also nerf
     model['joint_list'],model['skin'],model['weights'],model['bones'] = model_utils.build_skeleton(root,body,right_wing,left_wing)
     sweep_combinations = list(itertools.product(*sweep_params.values()))
 
+    pitch = np.array(-45.0)
+    roll = np.array(0.0)
 
-    for idx,frame in enumerate(range(frame_start,frame_end,1)):#frame = 1448
+
+
+    idx = 0
+    with open(f'D:/Documents/gaussian_model_output/initilize_with_loss_phi_psi_v3/angles_op_from_loss_psi_theta.pkl', 'rb') as handle:
+        phi_yaw_angles = pickle.load(handle)
+    
+    # body_run_frames = { key:val for key,val in zip(nominal_initial_angles.keys(),phi_yaw_angles) if int(key.split('_')[3]) in phi_yaw_angles[:,-1]}
+    # nominal_frames = { key:val for key,val in nominal_initial_angles.items() if key in body_run_frames.keys()}
+    body_run_frames= {}
+    for key in nominal_initial_angles.keys():
+        if int(key.split('_')[3]) in phi_yaw_angles[:,-1]:
+            body_run_frames[key] = phi_yaw_angles[np.where(phi_yaw_angles[:,-1] == int(key.split('_')[3]))[0][0]]
+
+    nominal_frames = { key:val for key,val in nominal_initial_angles.items() if key in body_run_frames.keys()}
+
+    # frames_to_run = phi_yaw_angles[:,-1]
+    yaw = phi_yaw_angles[:,0]
+    pitch = phi_yaw_angles[:,1]
+    roll = phi_yaw_angles[:,2]
+    phi_r = phi_yaw_angles[:,3]
+    theta_r = phi_yaw_angles[:,4]
+    psi_r = phi_yaw_angles[:,5]
+
+    phi_l = phi_yaw_angles[:,6]
+    theta_l = phi_yaw_angles[:,7]
+    psi_l = phi_yaw_angles[:,8]
+
+    idx_yaw = 0
+    for key,nominal in tqdm(list(nominal_frames.items())[-20:-19], total=len(list(nominal_frames.items())[-20:-19])):#frame = 1448
+        mov = int(key.split('_')[1]) 
+        frame = int(key.split('_')[3]) 
+        # idx = np.argwhere(frame == frames_to_run)
+        image_path = f'D:/Documents/data_for_eval/mov{mov}_2023_08_09_60ms/'
+        
+        
+        path_to_save = f'D:/Documents/gaussian_model_output/initilize_with_loss_phi_psi_specific_frame'
+        model['wing_body_ini_pose'] = nominal
+
+
+
+        copy_model = copy.deepcopy(model)
+        yaw,pitch,roll,phi_r,psi_r,theta_r,phi_l,psi_l,theta_l,fr = body_run_frames[key]
+
+
+        for idx,(delta_roll) in enumerate(roll_yaw):
+            try:
+                ini_dir = os.makedirs(os.path.join(path_to_save,str(frame),'initial'), exist_ok = True)
+
+                with open(f'{path_to_save}/{frame}/initial/initial_angles_{idx}', 'wb') as handle:
+                    pickle.dump(dict(copy_model['wing_body_ini_pose']), handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+                op.calc_model = True
+                frames_per_cam = [Frame(image_path,frame,cam_num,frames_dict = data_dict) for cam_num in range(4)]
+                camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
+                camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
+                cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
+
+
+                copy_model['wing_body_ini_pose']['thorax_ang'] = 0.0
+
+
+
+                run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,copy_model,update_from_prev_frame = False,idx_iter = idx)
+            except:
+                # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll + model['wing_body_ini_pose']['body_angles'][2])
+                # copy_model['wing_body_ini_pose']['body_angles'][1] = float(delta_roll + model['wing_body_ini_pose']['body_angles'][1])
+                # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll)
+                # copy_model['wing_body_ini_pose']['body_angles'][0] = float(delta_roll[0] + model['wing_body_ini_pose']['body_angles'][0])
+                # copy_model['wing_body_ini_pose']['body_angles'][1] = float(delta_roll[1] + model['wing_body_ini_pose']['body_angles'][1])
+                # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll[2] + model['wing_body_ini_pose']['body_angles'][2])
+
+                copy_model['wing_body_ini_pose']['body_angles'][0] = float(delta_roll[0])
+                copy_model['wing_body_ini_pose']['right_wing_angles'][0] = float(delta_roll[1])
+                copy_model['wing_body_ini_pose']['left_wing_angles'][0] = float(-delta_roll[1])
+                copy_model['wing_body_ini_pose']['body_angles'][1] = float(pitch)        
+                copy_model['wing_body_ini_pose']['body_angles'][2] = float(roll)
+
+                copy_model['wing_body_ini_pose']['right_wing_angles'][1] = float(delta_roll[2])
+                copy_model['wing_body_ini_pose']['right_wing_angles'][2] = float(-0.0)
+
+                copy_model['wing_body_ini_pose']['left_wing_angles'][1] = float(delta_roll[2])
+                copy_model['wing_body_ini_pose']['left_wing_angles'][2] = float(0.0)
+
+
+    idx_yaw += 1
+            # copy_model['wing_body_ini_pose']['body_angles'][0] = float(delta_roll[0])
+
+            # copy_model['wing_body_ini_pose']['right_wing_angles'][0] = float(delta_roll[1])
+
+            # copy_model['wing_body_ini_pose']['left_wing_angles'][0] = float(-delta_roll[1])
+
+
  
-        op.calc_model = True
-        frames_per_cam = [Frame(image_path,frame,cam_num,frames_dict = data_dict) for cam_num in range(4)]
-        camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
-        camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
-        cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
 
+        # angle_noise_std = 10
+        
+        # for key, value in noisy_model['wing_body_ini_pose'].items():
+        #     if isinstance(value, (np.ndarray,list)):
+        #         if key == 'body_angles':
+        #             noisy_model['wing_body_ini_pose'][key] = [ np.float32(v + np.random.normal(0, 15)) for v in value]
+        #         else:
+        #             # Apply noise to each element in the list
+        #             noisy_model['wing_body_ini_pose'][key] = [ np.float32(v + np.random.normal(0, angle_noise_std)) for v in value]
+        #     elif isinstance(value, (np.float16,np.float32,np.int16,np.int32)):
+        #         # Apply noise to single scalar
+        #         noisy_model['wing_body_ini_pose'][key] = np.float32(value + np.random.normal(0, 3))
+        #     else:
+        #         raise TypeError(f"Unsupported type for {key}: {type(value)}")
+        
 
-
-        model = run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_start,frame_end,update_from_prev_frame = True)
 
 
 

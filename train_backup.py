@@ -27,7 +27,7 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 import pickle
-import utils.model_utils as model_utils
+import utils.model_utils_mos as model_utils
 parent_dir = os.path.abspath(os.path.join(os.getcwd(), '..'))
 sys.path.insert(0, parent_dir)
 from model.Frame import Frame
@@ -328,8 +328,8 @@ def run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_s
         param_values = dict(zip(sweep_params.keys(), combination))
         with open(os.path.join(lp.model_path, "params.txt"), "w") as f:
             json.dump(param_values, f, indent=4)
-        model_name = f"fly_cornell_mov9"
-        # model_name = f"mosquito"
+        model_name = f"fly_model_hull_comp"
+        model_name = f"mosquito"
         lp.model_path = os.path.join(f"{path_to_save}", f"{frame}/{model_name}/")
 
         # Update optimization parameters dynamically
@@ -374,8 +374,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,100,800,1000,1200,1400,1600,1800,2000,2200,2500,3000,4000,5000,6000,8000,10000,15000,20000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,100,800,1000,1200,1400,1600,1800,2000,2200,2500,3000,4000,5000,6000,8000,10000,15000,20000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,100,400,500,700,900,1000,1300,2000,2200,2800,3000,4000,5000,6000,8000,10000,15000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1,100,400,500,700,900,1000,1300,2000,2200,2800,3000,4000,5000,6000,8000,10000,15000])#[1_0,1_000,5_000,10_000,15_000, 20_000,45_000,60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -386,8 +386,8 @@ if __name__ == "__main__":
     lp = lp.extract(args)
     op = op.extract(args)
     pp = pp.extract(args)
-    frame_start = 1765
-    frame_end = 2147
+    frame_start = 201
+    frame_end = 202
 
     path_to_save = 'D:/Documents/gaussian_model_output/model_wings_center_1430_1900_dens_nodense_500'
     path_to_save = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/model_run'
@@ -413,13 +413,8 @@ if __name__ == "__main__":
     # image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov7_2024_11_12_darkan/'
 
 
-    path_to_save = 'D:/Documents/gaussian_model_output/cornell_mov9'
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov9_cornell/'
 
-
-
-    path = f'{lp.source_path}/dict/frames_model_cornell.pkl'
+    path = f'{lp.source_path}/dict/frames_model_seminar.pkl'
     update_from_prev_frame = True
     params_to_update = {'right_wing_angles','left_wing_angles','body_angles',
                             'left_wing_angle_joint1','left_wing_angle_joint2',
@@ -450,16 +445,16 @@ if __name__ == "__main__":
     sweep_params = {
         # 'position_lr_max_steps': [30_000],
         # 'position_lr_init' : [0.0002],
-        # 'position_lr_final' : [0],
+        'position_lr_final' : [0],
         'iterations' :[2000],#[5000],#[900],# [1300], #1000
 
-        'densify_grad_threshold' : [0.00035],
-        'densify_until_iter' :[1200],#[3500],#[700],# [1100],#[1200], 850
-        'densify_from_iter':[700],#[700],#[300],# [700],#450
-        'scaling_lr': [0.0000005],
-        # 'rotation_lr': [0],
+        'densify_grad_threshold' : [0.00045],
+        'densify_until_iter' :[1800],#[3500],#[700],# [1100],#[1200], 850
+        'densify_from_iter':[200],#[700],#[300],# [700],#450
+        'scaling_lr': [0.00000005],
+        'rotation_lr': [0],
         # 'feature_lr': [0],
-        'scale_model' : [0.0005],
+        'scale_model' : [0.000],
         'model_rotation_lr' : [0.1],#[0.1,0.5],
         # 'model_rotation_lr_rwing' : [1],#,[1,0.5],
         # 'model_rotation_lr_lwing' : [1],#,[1,0.5],
@@ -471,12 +466,12 @@ if __name__ == "__main__":
         # 'body_location_init': [0.00003],
         # 'body_location_final' : [0.00001],
         # 'opacity_lr' : [0.1],#,0.12,0.08]
-        'xyz_init_iter' : [400],#[400],#[100],#[400],#,0.12,0.08] #150
+        'xyz_init_iter' : [100],#[400],#[100],#[400],#,0.12,0.08] #150
         'wing_location' : [0],
         'init_xyz_late' : [0.00016],#0.00016
         'model_rotation_lr_twist' : [0.05],#0.05
         'scaling_later' : [0.005],
-        'thorax_lr' : [0.0],#[0.01]0.005
+        'thorax_lr' : [0.1],#[0.01]0.005
 
     }
     model = {}
@@ -510,9 +505,9 @@ if __name__ == "__main__":
     #                                 'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
 
       
-    model['wing_body_ini_pose'] = {'right_wing_angles' : [ 0.0 , 20.0  ,   10.0], # -70 -130  [-60,-100,-0.]
-                                    'left_wing_angles' :  [-0.0, 20.0,  0.0], # 90 -130 [70,-150,10.0],
-                                    'body_angles' : [0.0, 0.0, 240.0],
+    model['wing_body_ini_pose'] = {'right_wing_angles' : [20,-90.0,-0.0], # -70 -130  [-60,-100,-0.]
+                                    'left_wing_angles' : [-20,-90.0,15.0], # 90 -130 [70,-150,10.0],
+                                    'body_angles' : [-80.0,0,-20.0],
                                     'right_wing_angle_joint1' : 0.0,
                                     'left_wing_angle_joint1' : 0.0,
                                     'right_wing_angle_joint2' : 0.0,
@@ -522,7 +517,7 @@ if __name__ == "__main__":
                                     'left_wing_twist_joint1' : -0.0,
                                     'right_wing_twist_joint2' : 0.0,
                                     'left_wing_twist_joint2' : -0.0,
-                                    'thorax_ang': -0.0} # -100 -25  [-95.0,  -25.0,  0]
+                                    'thorax_ang': -20.0} # -100 -25  [-95.0,  -25.0,  0]
 
 
 

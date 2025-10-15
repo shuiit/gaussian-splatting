@@ -454,7 +454,7 @@ if __name__ == "__main__":
         # 'position_lr_max_steps': [30_000],
         # 'position_lr_init' : [0.0002],
         'position_lr_final' : [0],
-        'iterations' :[1000],#[5000],#[900],# [1300], #1000
+        'iterations' :[100],#[5000],#[900],# [1300], #1000
 
         'densify_grad_threshold' : [0.00045],
         'densify_until_iter' :[800],#[3500],#[700],# [1100],#[1200], 850
@@ -483,22 +483,31 @@ if __name__ == "__main__":
     }
     model = {}
 
+    yaw_grid = np.hstack((np.arange(-180.0,0,15),np.arange(15.0,180,15)))
+    roll_grid = np.hstack((np.arange(-20.0,0,10),np.arange(10.0,20,10)))
+
+    pitch_grid =np.hstack((np.arange(-60.0,0,15),np.arange(15.0,30,15)))
 
 
-    yaw_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,25,5)))
-    roll_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+    phi_grid = np.hstack((np.arange(-90.0,0,15),np.arange(15.0,90,15)))
+    theta_grid = np.hstack((np.arange(-30.0,0,15),np.arange(0.0,15,15)))
+    psi_grid = np.hstack((np.arange(-170.0,-10,10)))
+    roll_yaw = list(itertools.product(yaw_grid,phi_grid,theta_grid,psi_grid))
 
-    pitch_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
-    pitch_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,30,5)))
+    # yaw_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,25,5)))
+    # roll_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+
+    # pitch_grid = np.hstack((np.arange(-15.0,0,5),np.arange(5.0,20,5)))
+    # pitch_grid = np.hstack((np.arange(-20.0,0,5),np.arange(5.0,30,5)))
 
 
-    pitch_grid = np.hstack((np.arange(-30.0,0,10),np.arange(10.0,50,10)))
-    yaw_grid = np.hstack(np.arange(5.0,15,5))
-    roll_grid = np.hstack(np.arange(5.0,15,5))
-    pitch_grid = np.hstack(np.arange(5.0,15,5))
+    # pitch_grid = np.hstack((np.arange(-30.0,0,10),np.arange(10.0,50,10)))
+    # yaw_grid = np.hstack(np.arange(5.0,15,5))
+    # roll_grid = np.hstack(np.arange(5.0,15,5))
+    # pitch_grid = np.hstack(np.arange(5.0,15,5))
 
-    roll_yaw = list(itertools.product(yaw_grid,pitch_grid,roll_grid))[1:-1]
-    roll_yaw.append((0.0,0.0,0.0))
+    # roll_yaw = list(itertools.product(yaw_grid,pitch_grid,roll_grid))[1:-1]
+    # roll_yaw.append((0.0,0.0,0.0))
     # roll_yaw = pitch_grid
 
 
@@ -530,6 +539,8 @@ if __name__ == "__main__":
     model['joint_list'],model['skin'],model['weights'],model['bones'] = model_utils.build_skeleton(root,body,right_wing,left_wing)
     sweep_combinations = list(itertools.product(*sweep_params.values()))
 
+    pitch = np.array(-45.0)
+    roll = np.array(0.0)
 
     for key,nominal in tqdm(list(nominal_initial_angles.items()), total=len(list(nominal_initial_angles.items()))):#frame = 1448
         mov = int(key.split('_')[1]) 
@@ -537,8 +548,11 @@ if __name__ == "__main__":
         image_path = f'D:/Documents/data_for_eval/mov{mov}_2023_08_09_60ms/'
         
         
-        path_to_save = f'D:/Documents/gaussian_model_output/fly_right_wing_combo_delta10_5_sweep'
+        path_to_save = f'D:/Documents/gaussian_model_output/initilize_with_loss'
         model['wing_body_ini_pose'] = nominal
+        model['wing_body_ini_pose']['body_angles'][1] = float(pitch)        
+        model['wing_body_ini_pose']['body_angles'][2] = float(roll)
+
         copy_model = copy.deepcopy(model)
     
 
@@ -565,10 +579,15 @@ if __name__ == "__main__":
             # copy_model['wing_body_ini_pose']['body_angles'][1] = float(delta_roll[1] + model['wing_body_ini_pose']['body_angles'][1])
             # copy_model['wing_body_ini_pose']['body_angles'][2] = float(delta_roll[2] + model['wing_body_ini_pose']['body_angles'][2])
 
+            copy_model['wing_body_ini_pose']['body_angles'][0] = float(delta_roll[0])
 
-            copy_model['wing_body_ini_pose']['right_wing_angles'][0] = float(delta_roll[0] + model['wing_body_ini_pose']['right_wing_angles'][0])
-            copy_model['wing_body_ini_pose']['right_wing_angles'][1] = float(delta_roll[1] + model['wing_body_ini_pose']['right_wing_angles'][1])
-            copy_model['wing_body_ini_pose']['right_wing_angles'][2] = float(delta_roll[2] + model['wing_body_ini_pose']['right_wing_angles'][2])
+            copy_model['wing_body_ini_pose']['right_wing_angles'][0] = float(delta_roll[1])
+            copy_model['wing_body_ini_pose']['right_wing_angles'][1] = float(delta_roll[2])
+            copy_model['wing_body_ini_pose']['right_wing_angles'][2] = float(delta_roll[3])
+
+            copy_model['wing_body_ini_pose']['left_wing_angles'][0] = float(-delta_roll[1])
+            copy_model['wing_body_ini_pose']['left_wing_angles'][1] = float(delta_roll[2])
+            copy_model['wing_body_ini_pose']['left_wing_angles'][2] = float(-delta_roll[3])
 
 
         # angle_noise_std = 10

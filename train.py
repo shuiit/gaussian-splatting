@@ -386,35 +386,15 @@ if __name__ == "__main__":
     lp = lp.extract(args)
     op = op.extract(args)
     pp = pp.extract(args)
+
+
     frame_start = 1765
     frame_end = 2147
 
-    path_to_save = 'D:/Documents/gaussian_model_output/model_wings_center_1430_1900_dens_nodense_500'
-    path_to_save = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_output/model_run'
-
-
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
-
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mosq'    
-
-
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov30_2024_11_12_darkan/'
-    image_path = 'D:/Documents/data_for_gs/mov1_2023_08_09_60ms/'
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov1_2023_08_09_60ms/'
-
-
-
-    image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov2_2024_04_10_moquito/'
-
-    path_to_save = 'D:/Documents/gaussian_model_output/fly_to_bee'
-    path_to_save = 'D:/Documents/gaussian_model_output/fly_fast'
-    path_to_save = 'D:/Documents/gaussian_model_output/mosquito_like_fly_denser'
-
-    # image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov7_2024_11_12_darkan/'
 
 
     path_to_save = 'D:/Documents/gaussian_model_output/cornell_mov9'
-    path_to_mesh = 'D:/Documents/model_gaussian_splatting/model/mesh'
+    path_to_mesh = 'D:/Documents/gaussian_reconstruction/mesh'
     image_path = 'G:/My Drive/Research/gaussian_splatting/gaussian_splatting_input/mov9_cornell/'
 
 
@@ -480,36 +460,6 @@ if __name__ == "__main__":
 
     }
     model = {}
-    # model['wing_body_ini_pose'] = {'right_wing_angles' : [-110,-70.0,-0], # [-50,-180,-0.]-110,-70,-0 1015
-    #                             'left_wing_angles' : [80,-90,-0.0],#[0,-60,-0.0], # [30,-90,-10.0]80,-90,-0.0
-    #                             'body_angles' : [-110.0,  -45.0,  30],#[-110,-30,-6.],# -110.0,  -45.0,  30 1015
-    #                             'right_wing_angle_joint1' : 0.0,
-    #                             'left_wing_angle_joint1' : -0.0,
-    #                             'right_wing_angle_joint2' : 0.0,
-    #                             'left_wing_angle_joint2' : -0.0,
-
-    #                             'right_wing_twist_joint1' : 0.0,
-    #                             'left_wing_twist_joint1' : -0.0,
-    #                             'right_wing_twist_joint2' : 0.0,
-    #                             'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
-    
-            # if idx == 0:
-    # model = {}
-
-    # model['wing_body_ini_pose'] = {'right_wing_angles' : [-0,-130,-0.], # -70 -130  [-60,-100,-0.]
-    #                                 'left_wing_angles' : [10,-130,-10.0], # 90 -130 [70,-150,10.0],
-    #                                 'body_angles' : [-105.0,  -25.0,  15],
-    #                                 'right_wing_angle_joint1' : 0.0,
-    #                                 'left_wing_angle_joint1' : -0.0,
-    #                                 'right_wing_angle_joint2' : 0.0,
-    #                                 'left_wing_angle_joint2' : -0.0,
-
-    #                                 'right_wing_twist_joint1' : 0.0,
-    #                                 'left_wing_twist_joint1' : -0.0,
-    #                                 'right_wing_twist_joint2' : 0.0,
-    #                                 'left_wing_twist_joint2' : -0.0,} # -100 -25  [-95.0,  -25.0,  0]
-
-      
     model['wing_body_ini_pose'] = {'right_wing_angles' : [ 0.0 , 20.0  ,   10.0], # -70 -130  [-60,-100,-0.]
                                     'left_wing_angles' :  [-0.0, 20.0,  0.0], # 90 -130 [70,-150,10.0],
                                     'body_angles' : [0.0, 0.0, 240.0],
@@ -523,9 +473,6 @@ if __name__ == "__main__":
                                     'right_wing_twist_joint2' : 0.0,
                                     'left_wing_twist_joint2' : -0.0,
                                     'thorax_ang': -0.0} # -100 -25  [-95.0,  -25.0,  0]
-
-
-
 
 
     weights_list = []
@@ -542,12 +489,7 @@ if __name__ == "__main__":
         camera_pixel = np.vstack([frame.camera_center_to_pixel_ray(([frame.cm[0],frame.cm[1]])) for frame in  frames_per_cam])
         camera_center = np.vstack([frame.X0.T for frame in  frames_per_cam])
         cm_point = camera_frame_utils.triangulate_least_square(camera_center,camera_pixel)
-
-
-
         model = run_sweep(sweep_combinations,lp, op, pp, args,params_to_update,model,frame_start,frame_end,update_from_prev_frame = True)
-
-
 
 
     print("\nframe complete.")
